@@ -1,0 +1,24 @@
+name: CustomScreenMenu
+main: com.example.ui.CursorMenuPlugin
+version: 1.0.0
+api-version: '1.19'
+folia-supported: true
+
+commands:
+  cursormenu:
+    aliases: [cmenu]
+permissions:
+  cursormenu.start:
+    default: op
+  cursormenu.stop:
+    default: op
+  cursormenu.reload:
+    default: op
+  cursormenu.items:
+    default: op
+  cursormenu.itemsstop:
+    default: op
+
+
+depend:
+  - PlaceholderAPI
