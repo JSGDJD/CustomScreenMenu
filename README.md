@@ -1,6 +1,9 @@
 CustomScreenMenu 插件说明
 
 (PS:本人是代码小白，只会一些基础，所以代码有不合适的地方请及时指出或者和我探讨)
+
+插件售价（60rmb）
+discord：https://discord.gg/YpZNACup
     
 插件简介
   
