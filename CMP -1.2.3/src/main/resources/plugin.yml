@@ -1,0 +1,29 @@
+name: CustomScreenMenu
+main: com.example.ui.CursorMenuPlugin
+version: 1.2.3
+api-version: '1.19'
+description: 由野比大雄基于框架UI菜单界面
+folia-supported: true
+
+commands:
+  cursormenu:
+    aliases: [cmenu]
+permissions:
+  cursormenu.start:
+    default: op
+  cursormenu.stop:
+    default: op
+  cursormenu.reload:
+    default: op
+  cursormenu.items:
+    default: op
+  cursormenu.itemsstop:
+    default: op
+  cursormenu.text:
+    default: op
+
+libraries:
+  - net.kyori:adventure-text-minimessage:4.15.0
+
+depend:
+  - PlaceholderAPI
