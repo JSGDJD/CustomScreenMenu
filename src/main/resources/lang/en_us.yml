@@ -1,0 +1,157 @@
+#This is the reference configuration for the default language; you do not need to modify it, as it serves no active purpose. Instead, make your changes in the main config file.
+#This is the reference configuration for the default language; you do not need to modify it, as it serves no active purpose. Instead, make your changes in the main config file.
+#This is the reference configuration for the default language; you do not need to modify it, as it serves no active purpose. Instead, make your changes in the main config file.
+
+version: "1.2"  # Do not change this line
+Debug: false
+camera-mode:
+  # Whether to force a switch to adventure mode when entering the camera perspective
+  force-adventure: true
+
+
+messages:
+  prefix: '&f[&eCustomScreenMenu&f] '
+  command_blocked: '&cCommands are disabled while in fixed-camera mode!'
+
+sound:
+  name: 'music.menu'
+  volume: 1
+  pitch: 1
+  loop:
+    enabled: true
+    duration: 30  # seconds between each loop
+
+join-run:
+  enabled: false
+  delay: 3        # seconds after joining before the menu opens
+  menu: 'test'    # menu section to display
+
+cursor-item:
+  material: 'ARROW'
+  custom-model-data: 0
+  scale: 0.5
+  max-x: 3        # maximum horizontal screen coverage
+  max-y: 1.5      # maximum vertical screen coverage
+  z-offset: 0.0   # forward/backward offset from the camera plane
+
+menu:
+  test:
+    camera-position:
+      distance: 1.5
+      world: "world"
+      x: 0
+      y: 2
+      z: 0
+      yaw: 0.0      # horizontal rotation in degrees (0–360)
+      pitch: 0.0    # vertical rotation in degrees (-90–90)
+    layout:
+      layout1:
+        name: "Start Game"
+        x: 0
+        y: 0
+        z: 0
+        tilt:
+          x: 0.0    # pitch (up/down)
+          y: 0.0    # yaw (left/right)
+          z: 0.0    # roll (tilt sideways)
+        command:
+          - '[player] say test'
+          - '[op] give %player% stone 1'
+        stop-menu:
+          enabled: false
+          teleport:
+            enabled: false
+            back-original: true
+            world: 'world'
+            x: 10
+            y: 80
+            z: 10
+          command:
+            enabled: false
+            list:
+              - '[player] say stop'
+
+      layout2:
+        name: "Options"
+        x: 0
+        y: -1
+        z: 0
+        tilt:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        command:
+          - '[player] say test'
+          - '[op] give %player% stone 1'
+        stop-menu:
+          enabled: false
+          teleport:
+            enabled: false
+            world: 'world'
+            x: 20
+            y: 90
+            z: 20
+          command:
+            enabled: false
+            list:
+              - '[player] say stop'
+
+  lobby:
+    camera-position:
+      distance: 2
+      world: "world"
+      x: 0
+      y: 100
+      z: 0
+      yaw: 0.0
+      pitch: 0.0
+    layout:
+      layout1:
+        name: "Start"
+        x: 0
+        y: 0
+        z: 0
+        tilt:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        command:
+          - '[player] say test'
+          - '[op] give %player% stone 1'
+        stop-menu:
+          enabled: false
+          teleport:
+            enabled: false
+            world: 'world'
+            x: 10
+            y: 80
+            z: 10
+          command:
+            enabled: false
+            list:
+              - '[player] say stop'
+
+      layout2:
+        name: "Options"
+        x: 0
+        y: -1
+        z: 0
+        tilt:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        command:
+          - '[player] say test'
+          - '[op] give %player% stone 1'
+        stop-menu:
+          enabled: false
+          teleport:
+            enabled: false
+            world: 'world'
+            x: 20
+            y: 90
+            z: 20
+          command:
+            enabled: false
+            list:
+              - '[player] say stop'
