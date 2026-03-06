@@ -1,0 +1,70 @@
+example:
+  # 打开整个 test 菜单所需的权限，不写则任何人可开
+  permission: cursormenu.menu.example
+
+  auto-commands:
+    enabled: true
+    commands:
+      - "[console] say 欢迎进入大厅菜单，3秒后执行"
+      - "[op] say 这是5秒后执行的命令"
+    delays:
+      - 60   # 3秒 = 60 ticks
+      - 100  # 5秒 = 100 ticks
+
+  # 按钮所在的位置
+  camera-position:
+    # 与文字组件的距离
+    distance: 1.5
+    world: world
+    x: 0
+    y: 78
+    z: 0
+    yaw: 0 # 水平旋转角度 (0-360)
+    pitch: 0.0 # 垂直旋转角度 (-90到90)
+  layout:
+    # 文字组件1
+    layout1:
+      permission: cursormenu.button.test.layout1
+      name: Sater
+      # 文字组件的x轴
+      x: 0
+      # 文字组件的y轴
+      y: 0
+      # 文字组件的z轴
+      z: 0.0
+      tilt:
+        x: 0.0 # 上下倾斜（俯仰）
+        y: 0.0 # 左右倾斜（偏航）
+        z: 0.0 # 前后倾斜（翻滚）
+      # PAPI条件判断
+      condition:
+        variable: "%player_level%"  # PAPI变量
+        operator: ">="              # 操作符: >, >=, <, <=, ==, !=
+        value: "10"                 # 需要比较的值
+      # 点击的执行命令
+      command:
+        - '[op] say hello'
+        - '[server] lobby' # Velocity跨服命令示例
+      # 随机命令执行（可选）
+      # random-commands:
+      #   - '[player] give %player% diamond 1'
+      #   - '[player] give %player% iron_ingot 5'
+      #   - '[console] say %player% 获得了随机奖励!'
+      # random-chances:
+      #   - 10  # 10% 概率获得钻石
+      #   - 50  # 50% 概率获得铁锭
+      #   - 40  # 40% 概率获得消息
+      command-delay: 6 # 命令执行延迟（ticks）
+      next-menu:
+        enabled: false
+        menu: lobby
+      # 点击后是否结束菜单
+      stop-menu:
+        enabled: false
+        teleport:
+          enabled: false # 是否启用传送功能（默认 false）
+          back-original: false # 是否传回进入菜单前的原位置（true：原位置；false：自定义坐标）
+          world: world # 目标世界名（当 back-original 为 false 时生效）
+          x: 0.0 # 目标 X 坐标
+          y: 64.0 # 目标 Y 坐标
+          z: 0.0 # 目标 Z 坐标

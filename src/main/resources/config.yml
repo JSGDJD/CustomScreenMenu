@@ -1,0 +1,88 @@
+version: "1.3.4" # 不要修改
+Debug: false
+
+# 是否开启南瓜头
+use-pumpkin-overlay: false
+
+# 是否以玩家当前所在位置/朝向作为菜单相机坐标
+# true  -> 忽略菜单 yml 里的 camera-position，用玩家当前脚下
+# false -> 使用菜单 yml 里写死的坐标（原有逻辑）
+use-player-location: false
+
+# 是否设置自定义的玩家结束菜单的朝向
+exit-camera:
+  yaw: 0.0
+  pitch: 0.0
+
+# 生物生成限制配置
+creature-spawn-limits:
+  enabled: false  # 是否启用生物生成限制
+  radius: 10      # 以菜单为中心的禁止生物生成的半径（方块）
+
+# 摄像机视角方块检测配置
+camera-block-check:
+  enabled: true
+  radius: 1  # 以玩家为中心的检测半径（方块）
+
+messages:
+  prefix: '&f[&eCustomScreenMenu&f] '
+  command_blocked: '&c固定视角下无法使用命令!'
+
+sound:
+  name: 'music.menu'
+  volume: 1
+  pitch: 1
+  # 循环音效
+  loop:
+    # 是否开启
+    enabled: true
+    # 每隔多少秒播放一次
+    duration: 30
+
+# 加入游戏就执行菜单
+join-run:
+  enabled: false
+  # 延迟多少秒执行
+  delay: 3
+  # 执行的菜单
+  menu: 'test'
+  commands:
+    - "[console] say 欢迎玩家 %player% 加入游戏！"
+    - "[player] msg %player% 欢迎来到服务器！"
+    - "[op] gamemode survival %player%"
+
+cursor-item:
+  material: 'ARROW'
+  custom-model-data: 0
+  scale: 0.5
+  # 自定义光标大小
+  size:
+    x: 1.0
+    y: 1.0
+    z: 1.0
+  # 最大3个X轴 已经为屏幕横向可容纳最大
+  max-x: 2
+  # 最大1.5个Y轴 已经为屏幕纵向可容纳最大
+  max-y: 3
+  x: 0.0       # X轴偏移
+  y: 0.0       # Y轴偏移
+  z-offset: 0.0  # 光标Z轴偏移量
+  # 光标移动范围限制
+  movement-range:
+    # 启用自定义光标移动范围限制
+    enabled: false
+    # 光标在X轴上的最小和最大位置
+    x:
+      min: -2.0
+      max: 2.0
+    # 光标在Y轴上的最小和最大位置
+    y:
+      min: -3.0
+      max: 3.0
+  # 光标默认位置
+  default-position:
+    # 启用自定义光标默认位置
+    enabled: false
+    # 光标默认的X和Y坐标
+    x: 0.0
+    y: 0.0

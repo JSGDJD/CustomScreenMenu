@@ -1,0 +1,8 @@
+
+# 允许在摄像机模式下使用的命令（不需要斜杠）
+allowed-commands:
+  - "help"
+  - "spawn"
+  - "warp"
+  - "cmenu stop"
+  - "cursormenu stop"

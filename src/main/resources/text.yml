@@ -1,0 +1,41 @@
+version: "1.2.3"
+text-displays:
+  welcome-message:
+    menus:
+      - "lobby"
+      - "main"
+    content: "&a欢迎来到服务器!"
+    scale: 1.5
+    position:
+      x: 0
+      y: 3
+      z: -5
+    tilt:
+      x: 0
+      y: 0
+      z: 0
+    animation:
+      type: "rotate"  # rotate, up-down, left-right
+      speed: 2.0
+      spacing: 0.5
+    duration: 100  # 持续时间（秒）
+    alignment: "center"  # left, center, right
+
+  rules:
+    menus:
+      - "lobby"
+    content:
+      - "&e服务器规则："
+      - "&71. 禁止作弊"
+      - "&72. 尊重他人"
+    scale: 1.2
+    position:
+      x: 2
+      y: 1
+      z: -3
+    animation:
+      type: "up-down"
+      speed: 1.5
+      spacing: 0.3
+    duration: 60
+    alignment: "left"
