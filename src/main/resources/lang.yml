@@ -125,3 +125,78 @@ npc:
 wasd:
   enabled: "&a[CursorMenu] WASD导航已启用"
   disabled: "&c[CursorMenu] WASD导航已禁用"
+
+# ========================================
+# 打字机效果相关提示 / Typewriter Effect Messages
+# ========================================
+typewriter:
+  started: "&a[CursorMenu] 打字机效果已启动"
+  completed: "&a[CursorMenu] 文字显示完成"
+  cancelled: "&e[CursorMenu] 打字机效果已取消"
+
+# ========================================
+# 悬停音效相关提示 / Hover Sound Messages
+# ========================================
+hover-sound:
+  play_success: "&7[CursorMenu] 悬停音效播放成功"
+  play_failed: "&c[CursorMenu] 悬停音效播放失败: %sound%"
+  cooldown_active: "&7[CursorMenu] 悬停音效冷却中..."
+
+# ========================================
+# 配置说明（中文）/ Configuration Help (Chinese)
+# ========================================
+config-help:
+  typewriter:
+    description: "打字机效果配置说明 - 实现文字逐字显示的动态效果"
+    enabled: "是否启用打字机效果 (true/false)"
+    speed: "每个字符显示间隔，单位为游戏刻(ticks)，20 ticks = 1秒 (推荐值: 1-5)"
+    start-delay: "开始显示前的延迟时间，单位为游戏刻(ticks) (推荐值: 0-40)"
+    cursor-char: "光标字符，用于指示文字正在输入 (默认: |)"
+    example: |
+      # 打字机效果配置示例：
+      typewriter:
+        enabled: true          # 启用打字机效果
+        speed: 2              # 每2个tick显示一个字符
+        start-delay: 10       # 延迟10个tick后开始
+        cursor-char: "|"      # 使用竖线作为光标
+  
+  hover-sound:
+    description: "悬停音效配置说明 - 鼠标悬停时播放特定音效"
+    name: "Minecraft音效名称 (如: block.note.pling, ui.button.click, entity.experience_orb.pickup)"
+    volume: "音量大小，范围 0.0 - 1.0 (推荐值: 0.3-1.0)"
+    pitch: "音调高低，范围 0.5 - 2.0 (推荐值: 0.8-1.5)"
+    cooldown: "防重复播放冷却时间，单位为游戏刻(ticks) (推荐值: 10-40)"
+    example: |
+      # 悬停音效配置示例：
+      hover-sound:
+        name: "block.note.pling"   # 音效名称
+        volume: 0.8                # 音量大小
+        pitch: 1.2                 # 音调高低
+        cooldown: 20               # 冷却时间(1秒)
+  
+  usage: |
+    # 在菜单按钮配置中使用示例 / Usage Example in Menu Button Config:
+    buttons:
+      welcome:
+        text: "欢迎来到服务器！"
+        # 打字机效果配置
+        typewriter:
+          enabled: true
+          speed: 3
+          start-delay: 5
+          cursor-char: "_"
+        # 悬停音效配置
+        hover-sound:
+          name: "block.note.pling"
+          volume: 0.6
+          pitch: 1.0
+          cooldown: 30
+
+# ========================================
+# 常用音效参考 / Common Sound Reference
+# ========================================
+sounds-reference:
+  note_sounds: "音符类: block.note.pling, block.note.harp, block.note.bass, block.note.hat, block.note.snare"
+  ui_sounds: "界面类: ui.button.click, ui.toast.challenge_complete, ui.cartography_table.result_created"
+  entity_sounds: "实体类: entity.experience_orb.pickup, entity.player.levelup, entity.villager.yes, entity.villager.no"
+  block_sounds: "方块类: block.chest.open, block.chest.close, block.amethyst_block.chime, block.beacon.activate"

@@ -2,6 +2,9 @@ package com.cmenu.ui;
 
 import com.cmenu.ui.ColorParser;
 import com.cmenu.ui.CursorMenuPlugin;
+import com.cmenu.ui.layout.MenuLayout;
+import com.cmenu.ui.util.HoverSoundManager;
+import com.cmenu.ui.util.TypewriterEffect;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -14,6 +17,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.util.*;
@@ -30,10 +34,21 @@ public class TextDisplayManager {
     private final Map<UUID, List<ActiveTextDisplay>> activeDisplays = new ConcurrentHashMap<>();
     private final Map<UUID, List<Integer>> activeTasks = new ConcurrentHashMap<>();
 
+    // 打字机效果管理器
+    private final TypewriterEffect typewriterEffect;
+
     public TextDisplayManager(JavaPlugin plugin) {
         this.plugin = plugin;
         this.configFile = new File(plugin.getDataFolder(), "text.yml");
+        this.typewriterEffect = new TypewriterEffect(CursorMenuPlugin.plugin);
         loadConfig();
+    }
+
+    /**
+     * 获取打字机效果管理器
+     */
+    public TypewriterEffect getTypewriterEffect() {
+        return typewriterEffect;
     }
 
     public void loadConfig() {
@@ -47,6 +62,9 @@ public class TextDisplayManager {
         activeDisplays.keySet().forEach(this::clearPlayerDisplays);
         activeDisplays.clear();
         activeTasks.clear();
+        
+        // 清理打字机效果
+        typewriterEffect.cleanupAll();
 
         loadConfig();
     }
@@ -83,11 +101,20 @@ public class TextDisplayManager {
             double tiltZ = config.getDouble(path + ".tilt.z", 0);
 
             String animType = config.getString(path + ".animation.type", "none");
+            boolean animEnabled = config.getBoolean(path + ".animation.enabled", !"none".equalsIgnoreCase(animType));
             double animSpeed = config.getDouble(path + ".animation.speed", 1.0);
+            double animAmplitude = config.getDouble(path + ".animation.amplitude", 0.25);
+            double animPhaseOffset = config.getDouble(path + ".animation.phase-offset", 0.0);
             double spacing = config.getDouble(path + ".animation.spacing", 0);
             String alignment = config.getString(path + ".alignment", "center");
 
             int duration = config.getInt(path + ".duration", 30) * 20; // 转换为ticks
+
+            // 打字机效果配置（从text.yml读取）
+            boolean typewriterEnabled = config.getBoolean(path + ".typewriter.enabled", false);
+            int typewriterSpeed = Math.max(1, config.getInt(path + ".typewriter.speed", 2));
+            int typewriterStartDelay = Math.max(0, config.getInt(path + ".typewriter.start-delay", 0));
+            String typewriterCursorChar = config.getString(path + ".typewriter.cursor-char", "|");
 
             createTextDisplays(
                     player,
@@ -95,9 +122,10 @@ public class TextDisplayManager {
                     scale,
                     x, y, z,
                     tiltX, tiltY, tiltZ,
-                    animType, animSpeed, spacing,
+                    animEnabled, animType, animSpeed, animAmplitude, animPhaseOffset, spacing,
                     alignment,
-                    duration
+                    duration,
+                    typewriterEnabled, typewriterSpeed, typewriterStartDelay, typewriterCursorChar
             );
         }
     }
@@ -105,8 +133,11 @@ public class TextDisplayManager {
     private void createTextDisplays(Player player, List<String> contents, double scale,
                                     double x, double y, double z,
                                     double tiltX, double tiltY, double tiltZ,
-                                    String animType, double animSpeed, double spacing,
-                                    String alignment, int duration) {
+                                    boolean animEnabled, String animType, double animSpeed,
+                                    double animAmplitude, double animPhaseOffset, double spacing,
+                                    String alignment, int duration,
+                                    boolean typewriterEnabled, int typewriterSpeed, 
+                                    int typewriterStartDelay, String typewriterCursorChar) {
 
         List<ActiveTextDisplay> displays = new CopyOnWriteArrayList<>();
         List<Integer> tasks = new CopyOnWriteArrayList<>();
@@ -129,7 +160,16 @@ public class TextDisplayManager {
                     .add(new Vector(x, y + yOffset + ((contents.size() - 1 - i) * spacing), z));
 
             TextDisplay display = world.spawn(loc, TextDisplay.class);
-            display.setText(line);
+            
+            // 如果启用打字机效果，初始设置为空或仅光标
+            if (typewriterEnabled) {
+                display.setText(typewriterCursorChar);
+                // 应用打字机效果
+                typewriterEffect.applyEffect(display, line, typewriterSpeed, typewriterStartDelay, typewriterCursorChar);
+            } else {
+                display.setText(line);
+            }
+            
             display.setCustomName("text-display-" + i);
             display.setCustomNameVisible(false);
             display.setBackgroundColor(org.bukkit.Color.fromARGB(0, 0, 0, 0));
@@ -141,35 +181,129 @@ public class TextDisplayManager {
             display.setInterpolationDuration(2);
 
             // 设置倾斜
-            Transformation trans = display.getTransformation();
-            trans.getScale().set(scale, scale, scale);
-            display.setTransformation(trans);
+            Transformation oldTrans = display.getTransformation();
+            Transformation newTrans = new Transformation(
+                oldTrans.getTranslation(),
+                oldTrans.getLeftRotation(),
+                new org.joml.Vector3f((float) scale, (float) scale, (float) scale),
+                oldTrans.getRightRotation()
+            );
+            display.setTransformation(newTrans);
 
             displays.add(new ActiveTextDisplay(display, loc.clone(), i));
 
             // 应用动画
-            applyAnimation(display, animType, animSpeed, spacing, i, tasks);
+            applyAnimation(display, animEnabled, animType, animSpeed, animAmplitude, animPhaseOffset, i, tasks);
         }
 
         activeDisplays.put(player.getUniqueId(), displays);
         activeTasks.put(player.getUniqueId(), tasks);
 
         // 设置自动移除
-        Bukkit.getScheduler().runTaskLater(CursorMenuPlugin.plugin, () -> {
+        BukkitTask durationTask = Bukkit.getScheduler().runTaskLater(CursorMenuPlugin.plugin, () -> {
             clearPlayerDisplays(player.getUniqueId());
         }, duration);
+        tasks.add(durationTask.getTaskId());
     }
 
-    private void applyAnimation(TextDisplay display, String animType, double speed,
-                                double spacing, int index, List<Integer> tasks) {
+    /**
+     * 使用MenuLayout配置创建文本显示（支持菜单按钮的打字机效果）
+     */
+    public void createTextDisplayWithLayout(Player player, String text, Location loc, 
+                                             float scale, MenuLayout layout) {
+        if (player == null || loc == null || layout == null) return;
+
+        String parsedText = ColorParser.toLegacyString(CursorMenuPlugin.parsePlaceholders(player, text));
+        World world = loc.getWorld();
+        if (world == null) return;
+
+        TextDisplay display = world.spawn(loc, TextDisplay.class);
+        
+        // 检查是否启用打字机效果
+        if (layout.isTypewriterEnabled()) {
+            display.setText(layout.getTypewriterCursorChar());
+            typewriterEffect.applyEffect(
+                display, 
+                parsedText, 
+                layout.getTypewriterSpeed(),
+                layout.getTypewriterStartDelay(),
+                layout.getTypewriterCursorChar()
+            );
+        } else {
+            display.setText(parsedText);
+        }
+
+        display.setCustomName(layout.key);
+        display.setCustomNameVisible(false);
+        display.setBackgroundColor(org.bukkit.Color.fromARGB(0, 0, 0, 0));
+        display.setDefaultBackground(false);
+        display.setShadowed(true);
+        display.setBillboard(TextDisplay.Billboard.CENTER);
+        display.setVisibleByDefault(false);
+        player.showEntity(CursorMenuPlugin.plugin, display);
+        display.setInterpolationDuration(2);
+
+        // 设置缩放和倾斜
+        Transformation oldTrans = display.getTransformation();
+        Transformation newTrans = new Transformation(
+            oldTrans.getTranslation(),
+            oldTrans.getLeftRotation().rotationYXZ(
+                (float) Math.toRadians(layout.tiltX),
+                (float) Math.toRadians(layout.tiltY),
+                (float) Math.toRadians(layout.tiltZ)
+            ),
+            new org.joml.Vector3f((float) layout.getTextSize(), (float) layout.getTextSize(), (float) layout.getTextSize()),
+            oldTrans.getRightRotation()
+        );
+        display.setTransformation(newTrans);
+    }
+
+    /**
+     * 完成指定玩家的打字机效果
+     */
+    public void completeTypewriterEffects(UUID playerId) {
+        List<ActiveTextDisplay> displays = activeDisplays.get(playerId);
+        if (displays != null) {
+            displays.forEach(ad -> {
+                if (ad.display.isValid() && typewriterEffect.isRunning(ad.display)) {
+                    typewriterEffect.completeEffect(ad.display);
+                }
+            });
+        }
+    }
+
+    /**
+     * 取消指定玩家的打字机效果
+     */
+    public void cancelTypewriterEffects(UUID playerId) {
+        List<ActiveTextDisplay> displays = activeDisplays.get(playerId);
+        if (displays != null) {
+            displays.forEach(ad -> {
+                if (ad.display.isValid()) {
+                    typewriterEffect.cancelEffect(ad.display);
+                }
+            });
+        }
+    }
+
+    private void applyAnimation(TextDisplay display, boolean enabled, String animType, double speed,
+                                double amplitude, double phaseOffset, int index, List<Integer> tasks) {
+
+        if (!enabled || animType == null || "none".equalsIgnoreCase(animType)) {
+            return;
+        }
 
         final long period = 1L;
-        final double step = speed * 0.05;
+        final double safeSpeed = Math.max(0.01, speed);
+        final double safeAmplitude = Math.max(0.0, amplitude);
+        final double step = safeSpeed * 0.05;
 
         switch (animType.toLowerCase()) {
             case "rotate": {
-                new BukkitRunnable() {
+                BukkitTask task = new BukkitRunnable() {
                     float angle = 0;
+                    long tick = 0;
+
                     @Override
                     public void run() {
                         if (!display.isValid()) {
@@ -177,16 +311,53 @@ public class TextDisplayManager {
                             return;
                         }
                         angle += step;
-                        Transformation t = display.getTransformation();
-                        t.getLeftRotation().rotationYXZ(0, angle, 0);
-                        display.setTransformation(t);
+                        Transformation oldT = display.getTransformation();
+                        Transformation newT = new Transformation(
+                            oldT.getTranslation(),
+                            oldT.getLeftRotation().rotationYXZ(0, angle, 0),
+                            oldT.getScale(),
+                            oldT.getRightRotation()
+                        );
+                        display.setTransformation(newT);
                     }
                 }.runTaskTimer(CursorMenuPlugin.plugin, 0L, period);
+                tasks.add(task.getTaskId());
                 break;
             }
 
+            case "float-y":
             case "up-down": {
-                new BukkitRunnable() {
+                BukkitTask task = new BukkitRunnable() {
+                    final org.joml.Vector3f baseTranslation = new org.joml.Vector3f(display.getTransformation().getTranslation());
+                    final double phase = phaseOffset * index;
+                    long tick = 0;
+
+                    @Override
+                    public void run() {
+                        if (!display.isValid()) {
+                            this.cancel();
+                            return;
+                        }
+                        tick++;
+                        float offset = (float) (Math.sin((tick * step) + phase) * safeAmplitude);
+
+                        Transformation oldT = display.getTransformation();
+                        Transformation newT = new Transformation(
+                            new org.joml.Vector3f(baseTranslation.x, baseTranslation.y + offset, baseTranslation.z),
+                            oldT.getLeftRotation(),
+                            oldT.getScale(),
+                            oldT.getRightRotation()
+                        );
+                        display.setTransformation(newT);
+                    }
+                }.runTaskTimer(CursorMenuPlugin.plugin, 0L, period);
+                tasks.add(task.getTaskId());
+                break;
+            }
+
+            case "__old-float-y":
+            case "__old-up-down": {
+                BukkitTask task = new BukkitRunnable() {
                     final Location start = display.getLocation().clone();
                     final double total = 2.0; // 上移距离
                     final long totalTicks = (long) (20 * 3 / speed); // 3秒
@@ -198,17 +369,22 @@ public class TextDisplayManager {
                             this.cancel();
                             return;
                         }
-                        tick++;
+                        long tick = 1;
                         float progress = Math.min(tick / (float) totalTicks, 1.0f);
                         double y = start.getY() + total * progress;
 
-                        Transformation t = display.getTransformation();
-                        t.getTranslation().set(
+                        Transformation oldT = display.getTransformation();
+                        Transformation newT = new Transformation(
+                            new org.joml.Vector3f(
                                 (float) (start.getX() - display.getLocation().getX()),
                                 (float) (y - display.getLocation().getY()),
                                 (float) (start.getZ() - display.getLocation().getZ())
+                            ),
+                            oldT.getLeftRotation(),
+                            oldT.getScale(),
+                            oldT.getRightRotation()
                         );
-                        display.setTransformation(t);
+                        display.setTransformation(newT);
 
                         if (tick >= totalTicks) this.cancel();
                     }
@@ -216,7 +392,37 @@ public class TextDisplayManager {
                 break;
             }
 
+            case "float-x":
             case "left-right": {
+                BukkitTask task = new BukkitRunnable() {
+                    final org.joml.Vector3f baseTranslation = new org.joml.Vector3f(display.getTransformation().getTranslation());
+                    final double phase = phaseOffset * index;
+                    long tick = 0;
+
+                    @Override
+                    public void run() {
+                        if (!display.isValid()) {
+                            this.cancel();
+                            return;
+                        }
+                        tick++;
+                        float offset = (float) (Math.sin((tick * step) + phase) * safeAmplitude);
+
+                        Transformation oldT = display.getTransformation();
+                        Transformation newT = new Transformation(
+                            new org.joml.Vector3f(baseTranslation.x + offset, baseTranslation.y, baseTranslation.z),
+                            oldT.getLeftRotation(),
+                            oldT.getScale(),
+                            oldT.getRightRotation()
+                        );
+                        display.setTransformation(newT);
+                    }
+                }.runTaskTimer(CursorMenuPlugin.plugin, 0L, period);
+                tasks.add(task.getTaskId());
+                break;
+            }
+
+            case "__old-left-right": {
                 new BukkitRunnable() {
                     final Location start = display.getLocation().clone();
                     final double total = 2.0; // 左右距离
@@ -233,13 +439,18 @@ public class TextDisplayManager {
                         float progress = Math.min(tick / (float) totalTicks, 1.0f);
                         double x = start.getX() + total * Math.sin(progress * 2 * Math.PI);
 
-                        Transformation t = display.getTransformation();
-                        t.getTranslation().set(
+                        Transformation oldT = display.getTransformation();
+                        Transformation newT = new Transformation(
+                            new org.joml.Vector3f(
                                 (float) (x - display.getLocation().getX()),
                                 0,
                                 0
+                            ),
+                            oldT.getLeftRotation(),
+                            oldT.getScale(),
+                            oldT.getRightRotation()
                         );
-                        display.setTransformation(t);
+                        display.setTransformation(newT);
                     }
                 }.runTaskTimer(CursorMenuPlugin.plugin, 0L, period);
                 break;
@@ -254,11 +465,12 @@ public class TextDisplayManager {
             tasks.forEach(Bukkit.getScheduler()::cancelTask);
         }
 
-        // 清除实体
+        // 清除实体和打字机效果
         List<ActiveTextDisplay> displays = activeDisplays.remove(playerId);
         if (displays != null) {
             displays.forEach(display -> {
                 if (display.display.isValid()) {
+                    typewriterEffect.cancelEffect(display.display);
                     display.display.remove();
                 }
             });
@@ -267,6 +479,7 @@ public class TextDisplayManager {
 
     public void cleanup() {
         activeDisplays.keySet().forEach(this::clearPlayerDisplays);
+        typewriterEffect.cleanupAll();
     }
 
     private static class ActiveTextDisplay {
@@ -280,6 +493,7 @@ public class TextDisplayManager {
             this.index = index;
         }
     }
+    
     public boolean showTextDisplayById(Player player, String textId) {
         if (!config.contains("text-displays." + textId)) {
             return false;
@@ -290,7 +504,7 @@ public class TextDisplayManager {
         List<String> contents = section.isList("content")
                 ? section.getStringList("content")
                 : Collections.singletonList(section.getString("content", ""));
-
+        
         double scale = section.getDouble("scale", 1.0);
         double x = section.getDouble("position.x", 0);
         double y = section.getDouble("position.y", 0);
@@ -301,10 +515,19 @@ public class TextDisplayManager {
         double tiltZ = section.getDouble("tilt.z", 0);
 
         String animType = section.getString("animation.type", "none");
+        boolean animEnabled = section.getBoolean("animation.enabled", !"none".equalsIgnoreCase(animType));
         double animSpeed = section.getDouble("animation.speed", 1.0);
+        double animAmplitude = section.getDouble("animation.amplitude", 0.25);
+        double animPhaseOffset = section.getDouble("animation.phase-offset", 0.0);
         double spacing = section.getDouble("animation.spacing", 0.5);
         String alignment = section.getString("alignment", "center");
         int duration = section.getInt("duration", 30) * 20;
+
+        // 打字机效果配置
+        boolean typewriterEnabled = section.getBoolean("typewriter.enabled", false);
+        int typewriterSpeed = Math.max(1, section.getInt("typewriter.speed", 2));
+        int typewriterStartDelay = Math.max(0, section.getInt("typewriter.start-delay", 0));
+        String typewriterCursorChar = section.getString("typewriter.cursor-char", "|");
 
         clearPlayerDisplays(player.getUniqueId());
 
@@ -314,9 +537,10 @@ public class TextDisplayManager {
                 scale,
                 x, y, z,
                 tiltX, tiltY, tiltZ,
-                animType, animSpeed, spacing,
+                animEnabled, animType, animSpeed, animAmplitude, animPhaseOffset, spacing,
                 alignment,
-                duration
+                duration,
+                typewriterEnabled, typewriterSpeed, typewriterStartDelay, typewriterCursorChar
         );
 
         return true;

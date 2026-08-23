@@ -208,9 +208,14 @@ public class ItemDisplayManager implements Listener {
 
     private void setScale(ItemDisplay display, float scale) {
         if (hasNewScaleApi()) {
-            Transformation tr = display.getTransformation();
-            tr.getScale().set(scale, scale, scale);
-            display.setTransformation(tr);
+            Transformation oldTr = display.getTransformation();
+            Transformation newTr = new Transformation(
+                oldTr.getTranslation(),
+                oldTr.getLeftRotation(),
+                new org.joml.Vector3f(scale, scale, scale),
+                oldTr.getRightRotation()
+            );
+            display.setTransformation(newTr);
             return;
         }
         try {

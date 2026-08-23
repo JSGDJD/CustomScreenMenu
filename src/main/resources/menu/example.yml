@@ -244,3 +244,62 @@ example:
           x: 0.0 # 目标 X 坐标
           y: 64.0 # 目标 Y 坐标
           z: 0.0 # 目标 Z 坐标           
+
+    # 文字组件1
+    layout8:
+      permission: cursormenu.button.test.layout1
+      name: 注册账号
+      # 文字组件的x轴
+      x: -2
+      # 文字组件的y轴
+      y: 0
+      # 文字组件的z轴
+      z: 3.5
+      tilt:
+        x: 0.0 # 上下倾斜（俯仰）
+        y: 0.0 # 左右倾斜（偏航）
+        z: 0.0 # 前后倾斜（翻滚）    
+      # 悬停放大效果
+      # ========== 打字机效果（新增） ==========
+      typewriter:
+        enabled: true          # 启用打字机效果
+        speed: 2               # 每2个tick显示一个字符（值越小越快）
+        start-delay: 10        # 延迟10个tick后开始显示（约0.5秒）
+        cursor-char: "|"       # 光标字符，也可以用 "_" 或 "▌" 
+      # ========== 悬停音效（新增） ==========
+      hover-sound:
+        name: "minecraft:block.lever.click"   # 音效名称（必填）
+        volume: 0.8                 # 音量 0.0-1.0（可选，默认1.0）
+        pitch: 1.2                  # 音调 0.5-2.0（可选，默认1.0）
+        cooldown: 20                # 冷却时间ticks（可选，默认20）        
+      hover-enlarge:
+        enabled: true    # 是否启用悬停放大效果
+        scale: 1.1       # 放大倍数        
+      # 文字大小（可选，默认1.0）
+      text-size: 1.2
+      # 点击的执行命令
+      command:
+        - '[op] say 注册账号'
+      # 随机命令执行（可选）
+      # random-commands:
+      #   - '[player] give %player% diamond 1'
+      #   - '[player] give %player% iron_ingot 5'
+      #   - '[console] say %player% 获得了随机奖励!'
+      # random-chances:
+      #   - 10  # 10% 概率获得钻石
+      #   - 50  # 50% 概率获得铁锭
+      #   - 40  # 40% 概率获得消息
+      command-delay: 6 # 命令执行延迟（ticks）
+      next-menu:
+        enabled: true
+        menu: 登录菜单
+      # 点击后是否结束菜单
+      stop-menu:
+        enabled: false
+        teleport:
+          enabled: false # 是否启用传送功能（默认 false）
+          back-original: false # 是否传回进入菜单前的原位置（true：原位置；false：自定义坐标）
+          world: world # 目标世界名（当 back-original 为 false 时生效）
+          x: 0.0 # 目标 X 坐标
+          y: 64.0 # 目标 Y 坐标
+          z: 0.0 # 目标 Z 坐标          

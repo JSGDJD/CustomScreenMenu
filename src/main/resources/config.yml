@@ -1,4 +1,4 @@
-version: "1.4.2" # 不要修改
+version: "1.4.6" # 不要修改
 Debug: false
 
 # 是否开启南瓜头
@@ -120,6 +120,10 @@ cursor-item:
   material: 'ARROW'
   custom-model-data: 0
   scale: 0.5
+  # 光标移动灵敏度 (1.0 为默认，数值越小移动越慢)
+  sensitivity: 1.0
+  # 光标平滑系数 (0.05-1.0，1.0=无滤波零延迟；越小越丝滑但会有拖手感)
+  smoothing: 1.0
   # 自定义光标大小
   size:
     x: 1.0

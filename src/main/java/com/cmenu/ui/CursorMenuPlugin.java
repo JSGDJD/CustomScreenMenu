@@ -3,6 +3,7 @@ package com.cmenu.ui;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerCommon;
 import com.github.retrooper.packetevents.event.PacketListenerAbstract;
+import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
@@ -13,8 +14,11 @@ import com.cmenu.ui.section.Section;
 import com.cmenu.ui.section.SectionManager;
 import com.cmenu.ui.npc.NPCModule;
 import com.cmenu.ui.wasd.WASDModule;
+import com.cmenu.ui.util.CommandUtils;
+import com.cmenu.ui.scheduler.ChunkLoaderManager;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
@@ -30,6 +34,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Transformation;
 import space.arim.morepaperlib.MorePaperLib;
 import org.bukkit.util.Vector;
@@ -45,11 +50,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class CursorMenuPlugin extends JavaPlugin {
     public static boolean creatureSpawnLimitEnabled;
     public static int creatureSpawnLimitRadius;
-    private final Map<String, Set<Long>> forcedLoadedChunks = new HashMap<>();
-    // 存储需要持续加载的区块 (世界名 -> 区块坐标集合)
-    private final Map<String, Set<Long>> persistentChunks = new HashMap<>();
-    // 区块加载任务的ID，用于取消任务
-    private int chunkLoaderTaskId = -1;
     public static List<String> joinRunCommands = new ArrayList<>();
     public static boolean cameraBlockCheckEnabled;
     public static int cameraBlockCheckRadius;
@@ -69,8 +69,34 @@ public class CursorMenuPlugin extends JavaPlugin {
     // private ProtocolManager protocolManager;
     public static Map<Player, ArmorStand> playerCursors = new ConcurrentHashMap<>();
     private final Map<Player, List<TextDisplay>> playerDisplays = new ConcurrentHashMap<>();
+    
+    /**
+     * 获取指定玩家的TextDisplay列表
+     */
+    public List<TextDisplay> getPlayerTextDisplays(Player player) {
+        List<TextDisplay> displays = playerDisplays.get(player);
+        return displays != null ? displays : Collections.emptyList();
+    }
+    
+    /**
+     * 根据菜单key和布局key获取对应的TextDisplay
+     */
+    public TextDisplay getTextDisplayByKeys(Player player, String menuKey, String layoutKey) {
+        List<TextDisplay> displays = playerDisplays.get(player);
+        if (displays == null) return null;
+        
+        String targetName = menuKey + ":" + layoutKey;
+        for (TextDisplay display : displays) {
+            String customName = display.getCustomName();
+            if (customName != null && customName.equals(targetName)) {
+                return display;
+            }
+        }
+        return null;
+    }
     private final Map<Player, ItemDisplay> playerItemDisplays = new ConcurrentHashMap<>();
     private final Map<Player, ItemDisplay> playerPumpkinDisplays = new ConcurrentHashMap<>();
+    private final Map<Player, List<Integer>> playerMenuTextAnimationTasks = new ConcurrentHashMap<>();
     public static Map<Player, Location> playerLocations = new ConcurrentHashMap<>();
     public static Map<Player, Pig> playerSit = new ConcurrentHashMap<>();
 
@@ -91,6 +117,8 @@ public class CursorMenuPlugin extends JavaPlugin {
     public static double maxX;
     public static double maxY;
     public static double cursorScale;
+    public static double cursorSensitivity;
+    public static double cursorSmoothing;
     public static int runDelay;
     public static boolean hasPAPI;
     public static boolean usePumpkinOverlay;
@@ -109,6 +137,9 @@ public class CursorMenuPlugin extends JavaPlugin {
 
     // 悬停放大管理器
     private HoverEnlargeManager hoverEnlargeManager;
+
+    // 区块加载管理器
+    private ChunkLoaderManager chunkLoaderManager;
 
     private Map<Player, String> currentPlayerMenus = new ConcurrentHashMap<>();
     public Map<Player, MenuLayout> selectedLayouts = new ConcurrentHashMap<>();
@@ -445,6 +476,94 @@ public class CursorMenuPlugin extends JavaPlugin {
         return adminIpValidator;
     }
 
+    private void clearMenuTextAnimationTasks(Player player) {
+        List<Integer> tasks = playerMenuTextAnimationTasks.remove(player);
+        if (tasks != null) {
+            tasks.forEach(Bukkit.getScheduler()::cancelTask);
+        }
+    }
+
+    private void applyMenuTextFloatingAnimation(Player player, TextDisplay display, MenuLayout layout) {
+        if (player == null || display == null || layout == null || !layout.isFloatingAnimationEnabled()) {
+            return;
+        }
+
+        String type = layout.getFloatingAnimationType();
+        if (type == null || "none".equalsIgnoreCase(type)) {
+            return;
+        }
+
+        final double speed = Math.max(0.01, layout.getFloatingAnimationSpeed());
+        final double amplitude = Math.max(0.0, layout.getFloatingAnimationAmplitude());
+        final boolean horizontal = "left-right".equalsIgnoreCase(type) || "float-x".equalsIgnoreCase(type);
+        final boolean vertical = "up-down".equalsIgnoreCase(type) || "float-y".equalsIgnoreCase(type);
+        final boolean rotate = "rotate".equalsIgnoreCase(type);
+
+        if (!horizontal && !vertical && !rotate) {
+            return;
+        }
+
+        if (rotate) {
+            final float baseYaw = (float) Math.toRadians(layout.tiltY);
+            final float basePitch = (float) Math.toRadians(layout.tiltX);
+            final float baseRoll = (float) Math.toRadians(layout.tiltZ);
+
+            int taskId = new BukkitRunnable() {
+                float angle = 0;
+
+                @Override
+                public void run() {
+                    if (!player.isOnline() || !display.isValid() || !playerDisplays.getOrDefault(player, Collections.emptyList()).contains(display)) {
+                        cancel();
+                        return;
+                    }
+
+                    angle += speed * 0.05;
+                    Transformation oldTrans = display.getTransformation();
+                    display.setTransformation(new Transformation(
+                            oldTrans.getTranslation(),
+                            oldTrans.getLeftRotation().rotationYXZ(baseYaw + angle, basePitch, baseRoll),
+                            oldTrans.getScale(),
+                            oldTrans.getRightRotation()
+                    ));
+                }
+            }.runTaskTimer(this, 0L, 1L).getTaskId();
+
+            playerMenuTextAnimationTasks.computeIfAbsent(player, key -> new CopyOnWriteArrayList<>()).add(taskId);
+            return;
+        }
+
+        final org.joml.Vector3f baseTranslation = new org.joml.Vector3f(display.getTransformation().getTranslation());
+
+        int taskId = new BukkitRunnable() {
+            long tick = 0;
+
+            @Override
+            public void run() {
+                if (!player.isOnline() || !display.isValid() || !playerDisplays.getOrDefault(player, Collections.emptyList()).contains(display)) {
+                    cancel();
+                    return;
+                }
+
+                tick++;
+                float offset = (float) (Math.sin(tick * speed * 0.05) * amplitude);
+                Transformation oldTrans = display.getTransformation();
+                org.joml.Vector3f translation = horizontal
+                        ? new org.joml.Vector3f(baseTranslation.x + offset, baseTranslation.y, baseTranslation.z)
+                        : new org.joml.Vector3f(baseTranslation.x, baseTranslation.y + offset, baseTranslation.z);
+
+                display.setTransformation(new Transformation(
+                        translation,
+                        oldTrans.getLeftRotation(),
+                        oldTrans.getScale(),
+                        oldTrans.getRightRotation()
+                ));
+            }
+        }.runTaskTimer(this, 0L, 1L).getTaskId();
+
+        playerMenuTextAnimationTasks.computeIfAbsent(player, key -> new CopyOnWriteArrayList<>()).add(taskId);
+    }
+
     // 获取玩家当前正在输入的字段
     public String getCurrentPlayerInputField(Player player) {
         return currentPlayerInputFields.get(player.getUniqueId());
@@ -590,7 +709,9 @@ public class CursorMenuPlugin extends JavaPlugin {
 
         registerUseEntityPacketListener();
 
-        startChunkLoaderTask();
+        // 初始化区块加载管理器
+        chunkLoaderManager = new ChunkLoaderManager(this);
+        chunkLoaderManager.startChunkLoaderTask();
 
         getServer().getPluginManager().registerEvents(new CreatureSpawnListener(), this);
 
@@ -611,6 +732,10 @@ public class CursorMenuPlugin extends JavaPlugin {
         // 初始化悬停放大管理器
         hoverEnlargeManager = new HoverEnlargeManager(this);
 
+        // 初始化区块加载管理器
+        chunkLoaderManager = new ChunkLoaderManager(this);
+        chunkLoaderManager.startChunkLoaderTask();
+
         // 初始化数据库管理器
         databaseManager = new DatabaseManager(this);
 
@@ -622,6 +747,10 @@ public class CursorMenuPlugin extends JavaPlugin {
 
         // 初始化NPC镜像模块
         NPCModule.initialize(this);
+        
+        // 初始化bStats统计
+        int pluginId = 30148; // bStats插件ID
+        Metrics metrics = new Metrics(this, pluginId);
 
         // 初始化WASD导航模块
         WASDModule.initialize(this);
@@ -653,10 +782,6 @@ public class CursorMenuPlugin extends JavaPlugin {
                 if (!playerCursors.containsKey(player)) continue;
 
                 Location loc = player.getLocation();
-                float yaw = loc.getYaw();
-                float pitch = loc.getPitch();
-
-                updateCursorPosition(player, yaw, pitch);
                 
                 // 更新南瓜头位置
                 ItemDisplay pumpkinDisplay = playerPumpkinDisplays.get(player);
@@ -677,6 +802,11 @@ public class CursorMenuPlugin extends JavaPlugin {
         // 关闭NPC镜像模块
         NPCModule.shutdown();
 
+        // 停止区块加载任务
+        if (chunkLoaderManager != null) {
+            chunkLoaderManager.stopChunkLoaderTask();
+        }
+
         // 注销BungeeCord/Velocity通道
         getServer().getMessenger().unregisterOutgoingPluginChannel(this, "BungeeCord");
 
@@ -695,20 +825,16 @@ public class CursorMenuPlugin extends JavaPlugin {
     private YamlConfiguration langConfig;
     
     // 获取语言配置中的消息
-    public String getLangMessage(String key, String defaultValue) {
+    public synchronized String getLangMessage(String key, String defaultValue) {
         if (langConfig == null) {
             reloadLangConfig();
         }
         // 确保每次获取消息时都从文件中重新加载配置
-        File langFile = new File(getDataFolder(), "lang.yml");
-        if (langFile.exists()) {
-            langConfig = YamlConfiguration.loadConfiguration(langFile);
-        }
         return ChatColor.translateAlternateColorCodes('&', langConfig.getString(key, defaultValue));
     }
     
     // 重新加载语言配置
-    public void reloadLangConfig() {
+    public synchronized void reloadLangConfig() {
         File langFile = new File(getDataFolder(), "lang.yml");
         if (!langFile.exists()) {
             saveResource("lang.yml", false);
@@ -718,6 +844,7 @@ public class CursorMenuPlugin extends JavaPlugin {
     }
 
     public void reloadPluginConfig() {
+        Map<Player, String> menusToRestore = new HashMap<>(currentPlayerMenus);
         // 重载语言配置
         reloadLangConfig();
 
@@ -738,10 +865,13 @@ public class CursorMenuPlugin extends JavaPlugin {
                     cursor.remove();
                 }
 
+                clearMenuTextAnimationTasks(player);
                 List<TextDisplay> textDisplays = playerDisplays.remove(player);
                 if (textDisplays != null) {
                     textDisplays.forEach(display -> {
                         if (display != null && !display.isDead()) {
+                            // 取消打字机效果
+                            textDisplayManager.getTypewriterEffect().cancelEffect(display);
                             display.remove();
                         }
                     });
@@ -783,7 +913,7 @@ public class CursorMenuPlugin extends JavaPlugin {
                 passwordVisibility.remove(player.getUniqueId());
                 
                 // 恢复阻挡方块
-                stopCursor(player, true);
+                restoreBlocks(player);
             }
 
             itemDisplayManager.hideItem(player);
@@ -812,6 +942,9 @@ public class CursorMenuPlugin extends JavaPlugin {
         playerItemDisplays.clear();
         playerLocations.clear();
         playerSit.clear();
+        cursorExactLocations.clear();
+        currentPlayerMenus.clear();
+        selectedLayouts.clear();
         playingSound.clear();
         sectionManager.clear();
         currentPlayerInputFields.clear();
@@ -847,7 +980,12 @@ public class CursorMenuPlugin extends JavaPlugin {
         YamlConfiguration commandsConfig = YamlConfiguration.loadConfiguration(commandsFile);
         allowedCommands = commandsConfig.getStringList("allowed-commands");
         allowedCommands.replaceAll(String::toLowerCase);
-        updatePersistentChunks();
+
+        // 重新启动区块加载任务
+        if (chunkLoaderManager != null) {
+            chunkLoaderManager.startChunkLoaderTask();
+        }
+
         // 重新加载生物生成限制配置
         creatureSpawnLimitEnabled = getConfig().getBoolean("creature-spawn-limits.enabled", false);
         creatureSpawnLimitRadius = getConfig().getInt("creature-spawn-limits.radius", 10);
@@ -886,7 +1024,7 @@ public class CursorMenuPlugin extends JavaPlugin {
 
         // 为所有在线玩家重新创建菜单元素，以应用新的配置
         for (Player player : Bukkit.getOnlinePlayers()) {
-            String currentMenu = currentPlayerMenus.get(player);
+            String currentMenu = menusToRestore.get(player);
             if (currentMenu != null) {
                 // 为玩家重新创建菜单元素，使用新的配置
                 setupCursor(player, currentMenu);
@@ -915,6 +1053,8 @@ public class CursorMenuPlugin extends JavaPlugin {
         cursorZOffset = getConfig().getDouble("cursor-item.z-offset", 0.0);
         cursorX = getConfig().getDouble("cursor-item.x", 0.0);
         cursorY = getConfig().getDouble("cursor-item.y", 0.0);
+        // 默认 1.0 = 关闭滤波，避免输入延迟；仅在用户需要时手动调小
+        cursorSmoothing = getConfig().getDouble("cursor-item.smoothing", 1.0);
         soundLoop = getConfig().getBoolean("sound.loop.enabled");
         soundRate = getConfig().getInt("sound.loop.duration");
         soundName = getConfig().getString("sound.name");
@@ -926,6 +1066,7 @@ public class CursorMenuPlugin extends JavaPlugin {
         joinRunSection = getConfig().getString("join-run.menu","test");
         cursorItem = getConfig().getString("cursor-item.material", "ARROW");
         cursorScale = getConfig().getDouble("cursor-item.scale",1);
+        cursorSensitivity = getConfig().getDouble("cursor-item.sensitivity", 1.0);
         cursorModelData = getConfig().getInt("cursor-item.custom-model-data", 0);
         maxX = getConfig().getDouble("cursor-item.max-x");
         maxY = getConfig().getDouble("cursor-item.max-y");
@@ -960,7 +1101,11 @@ public class CursorMenuPlugin extends JavaPlugin {
         YamlConfiguration commandsConfig = YamlConfiguration.loadConfiguration(commandsFile);
         allowedCommands = commandsConfig.getStringList("allowed-commands");
         allowedCommands.replaceAll(String::toLowerCase);
-        updatePersistentChunks();
+
+        // 重新启动区块加载任务
+        if (chunkLoaderManager != null) {
+            chunkLoaderManager.startChunkLoaderTask();
+        }
     }
 
     /**
@@ -1022,20 +1167,6 @@ public class CursorMenuPlugin extends JavaPlugin {
 
     public void setupCursor(Player player, String key) {
         if (playerCursors.containsKey(player)) {
-            // 检查是否需要刷新而不是完全重建菜单
-            String currentMenuKey = currentPlayerMenus.get(player);
-            Section currentSection = sectionManager.get(currentMenuKey);
-            Section newSection = sectionManager.get(key);
-
-            // 如果两个菜单位于同一世界和坐标，则只刷新内容
-            // 修复：确保菜单键不同时才刷新，或者强制刷新（如密码可见性切换）
-            if (currentSection != null && newSection != null &&
-                    isSameLocation(currentSection, newSection)) {
-                refreshMenuContent(player, key, currentMenuKey);
-                return;
-            }
-
-            // 否则按照原来的逻辑处理
             stopCursor(player, false);
         }
 
@@ -1044,6 +1175,7 @@ public class CursorMenuPlugin extends JavaPlugin {
 
         // 添加 null 检查以防止 NullPointerException
         if (section == null) {
+            currentPlayerMenus.remove(player);
             getLogger().warning("Menu '" + key + "' not found! Please check your menu configuration.");
             player.sendMessage(getLangMessage("command.menu_not_found", "&c[CursorMenu] 菜单 '%menu%' 未找到，请检查配置文件！").replace("%menu%", key));
             return;
@@ -1052,6 +1184,7 @@ public class CursorMenuPlugin extends JavaPlugin {
         PlayerLocationOverride.apply(player, section);
         World world = Bukkit.getWorld(section.world);
         if (world == null) {
+            currentPlayerMenus.remove(player);
             getLogger().warning("World " + section.world + " not found!");
             return;
         }
@@ -1164,6 +1297,7 @@ public class CursorMenuPlugin extends JavaPlugin {
                 trans.getScale().set(layout.getTextSize());
                 
                 t.setTransformation(trans);
+                applyMenuTextFloatingAnimation(player, t, layout);
             }
             playerDisplays.put(player, textDisplays);
 
@@ -1285,6 +1419,7 @@ public class CursorMenuPlugin extends JavaPlugin {
                 cursor.remove();
             }
 
+            clearMenuTextAnimationTasks(player);
             List<TextDisplay> textDisplays = playerDisplays.remove(player);
             if (textDisplays != null) {
                 textDisplays.forEach(display -> {
@@ -1352,6 +1487,7 @@ public class CursorMenuPlugin extends JavaPlugin {
             currentPlayerInputFields.remove(player.getUniqueId());
             userInputData.remove(player.getUniqueId());
             passwordVisibility.remove(player.getUniqueId());
+            Commands.getUserInputData().remove(player.getUniqueId());
 
             // 移除NPC镜像
             NPCModule.onMenuClose(player);
@@ -1366,7 +1502,7 @@ public class CursorMenuPlugin extends JavaPlugin {
         armorStand.setGravity(false);
         armorStand.setVisible(false);
         armorStand.setMarker(true);
-        setTeleportDurationSafe(armorStand, 2); // 设置为2以确保平滑移动
+        setTeleportDurationSafe(armorStand, 2); // 恢复原版设置
         return armorStand;
     }
 
@@ -1404,11 +1540,19 @@ public class CursorMenuPlugin extends JavaPlugin {
         itemDisplay.setBillboard(Display.Billboard.CENTER);
         itemDisplay.setRotation(location.getYaw(), location.getPitch());
         itemDisplay.setVisibleByDefault(false);
-        Transformation transformation = itemDisplay.getTransformation();
-        transformation.getScale().set(cursorScale);
-        itemDisplay.setTransformation(transformation);
+        
+        Transformation oldTrans = itemDisplay.getTransformation();
+        Transformation newTrans = new Transformation(
+            oldTrans.getTranslation(),
+            oldTrans.getLeftRotation(),
+            new org.joml.Vector3f((float) cursorScale, (float) cursorScale, (float) cursorScale),
+            oldTrans.getRightRotation()
+        );
+        itemDisplay.setTransformation(newTrans);
         player.showEntity(this,itemDisplay);
-        setTeleportDurationSafe(itemDisplay, 2); // 设置为2以确保平滑移动
+        
+        // 恢复原来的 ArmorStand 一致的 teleportDuration
+        setTeleportDurationSafe(itemDisplay, 2);
         return itemDisplay;
     }
 
@@ -1457,24 +1601,27 @@ public class CursorMenuPlugin extends JavaPlugin {
         Vector right = new Vector(-dir.getZ(), 0, dir.getX()).normalize();
         Vector up    = dir.getCrossProduct(right).multiply(-1);
 
-        // 计算屏幕坐标
-        double screenX = (yaw / (90D / maxX)) + cursorX;
-        double screenY = (pitch / (90D / maxY)) + cursorY;
+        // 计算目标屏幕坐标，加入灵敏度设置
+        double sensitivity = cursorSensitivity;
+        double targetScreenX = (yaw / (90D / maxX)) * sensitivity + cursorX;
+        double targetScreenY = (pitch / (90D / maxY)) * sensitivity + cursorY;
 
         // 应用光标移动范围限制
         if (cursorMovementRangeEnabled) {
             // 限制光标移动范围，但不强制"环绕"
-            screenX = Math.max(cursorMovementRangeXMin, Math.min(cursorMovementRangeXMax, screenX));
-            screenY = Math.max(cursorMovementRangeYMin, Math.min(cursorMovementRangeYMax, screenY));
+            targetScreenX = Math.max(cursorMovementRangeXMin, Math.min(cursorMovementRangeXMax, targetScreenX));
+            targetScreenY = Math.max(cursorMovementRangeYMin, Math.min(cursorMovementRangeYMax, targetScreenY));
         }
 
-        Vector offset = right.multiply(screenX).add(up.multiply(-screenY));
+        Vector offset = right.multiply(targetScreenX).add(up.multiply(-targetScreenY));
         Location hudPos = base.clone()
                 .add(dir.multiply(section.distance + cursorZOffset))
                 .add(offset);
 
+        // 使用最原生的传送方法
         cursor.teleport(hudPos);
         itemDis.teleport(hudPos);
+        
         cursorExactLocations.put(player, hudPos.clone());
     }
 
@@ -1541,6 +1688,7 @@ public class CursorMenuPlugin extends JavaPlugin {
         // 移除旧的文字显示实体
         List<TextDisplay> oldTextDisplays = playerDisplays.get(player);
         if (oldTextDisplays != null) {
+            clearMenuTextAnimationTasks(player);
             // 在主线程中移除实体以避免异步错误
             foliaLib.scheduling().entitySpecificScheduler(player).run(() -> {
                 oldTextDisplays.forEach(display -> {
@@ -1571,7 +1719,22 @@ public class CursorMenuPlugin extends JavaPlugin {
             TextDisplay t = world.spawn(textLocation, TextDisplay.class);
             // 确保在刷新时也正确处理占位符
             String parsedName = parsePlaceholders(player, layout.name);
-            t.setText(ColorParser.toLegacyString(parsedName));
+            String finalText = ColorParser.toLegacyString(parsedName);
+            
+            // 检查是否启用打字机效果
+            if (layout.isTypewriterEnabled()) {
+                t.setText(layout.getTypewriterCursorChar());
+                textDisplayManager.getTypewriterEffect().applyEffect(
+                    t, 
+                    finalText, 
+                    layout.getTypewriterSpeed(), 
+                    layout.getTypewriterStartDelay(), 
+                    layout.getTypewriterCursorChar()
+                );
+            } else {
+                t.setText(finalText);
+            }
+            
             t.setCustomName(newMenuKey + ":" + layout.key);
             t.setCustomNameVisible(false);
             t.setBackgroundColor(Color.fromARGB(0, 0, 0, 0));
@@ -1585,13 +1748,15 @@ public class CursorMenuPlugin extends JavaPlugin {
             float pitchRad = (float) Math.toRadians(layout.tiltX);
             float yawRad = (float) Math.toRadians(layout.tiltY);
             float rollRad = (float) Math.toRadians(layout.tiltZ);
-            Transformation trans = t.getTransformation();
-            trans.getLeftRotation().rotationYXZ(yawRad, pitchRad, rollRad);
-            
-            // 设置文本大小
-            trans.getScale().set(layout.getTextSize());
-            
-            t.setTransformation(trans);
+            Transformation oldTrans = t.getTransformation();
+            Transformation newTrans = new Transformation(
+                oldTrans.getTranslation(),
+                oldTrans.getLeftRotation().rotationYXZ(yawRad, pitchRad, rollRad),
+                new org.joml.Vector3f((float) layout.getTextSize(), (float) layout.getTextSize(), (float) layout.getTextSize()),
+                oldTrans.getRightRotation()
+            );
+            t.setTransformation(newTrans);
+            applyMenuTextFloatingAnimation(player, t, layout);
         }
 
         playerDisplays.put(player, newTextDisplays);
@@ -1648,68 +1813,98 @@ public class CursorMenuPlugin extends JavaPlugin {
         menuLayout.runCommand(player);
     }
 
+    private void handleCursorClick(Player player) {
+        foliaLib.scheduling().regionSpecificScheduler(player.getLocation()).run(task -> {
+            Location cursorLoc = cursorExactLocations.get(player);
+            if (cursorLoc == null) return;
+
+            String menuKey = getCurrentPlayerMenu(player);
+            if (menuKey == null) return;
+
+            Section section = sectionManager.get(menuKey);
+            if (section == null) return;
+
+            World world = Bukkit.getWorld(section.world);
+            if (world == null) return;
+
+            TextDisplay closest = null;
+            double minDistance = Double.MAX_VALUE;
+
+            for (MenuLayout layout : section.layouts.values()) {
+                Location cameraLoc = new Location(world, section.cameraX, section.cameraY, section.cameraZ, section.yaw, section.pitch);
+                Vector dir = cameraLoc.getDirection().normalize();
+                Vector right = new Vector(-dir.getZ(), 0, dir.getX()).normalize();
+                Vector up = dir.getCrossProduct(right).multiply(-1);
+
+                Vector offset = dir.multiply(layout.z)
+                        .add(right.multiply(layout.x))
+                        .add(up.multiply(layout.y));
+                Location buttonLoc = cameraLoc.clone().add(offset);
+
+                String key = menuKey + ":" + layout.key;
+
+                TextDisplay textDisplay = world.getEntitiesByClass(TextDisplay.class).stream()
+                        .filter(e -> key.equals(e.getCustomName()))
+                        .findFirst()
+                        .orElse(null);
+
+                if (textDisplay != null && TextDisplayHitBox.isInside(textDisplay, cursorLoc)) {
+                    double distance = textDisplay.getLocation().distanceSquared(cursorLoc);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closest = textDisplay;
+                    }
+                }
+            }
+
+            if (closest != null) {
+                String key = closest.getCustomName();
+                MenuLayout layout = sectionManager.getLayout(key);
+                if (layout != null) {
+                    selectedLayouts.put(player, layout);
+                    layout.runCommand(player);
+                }
+            }
+        });
+    }
+
 
     private void registerUseEntityPacketListener() {
-        PacketEvents.getAPI().getEventManager().registerListener(new PacketListenerAbstract() {
+        PacketEvents.getAPI().getEventManager().registerListener(new PacketListenerAbstract(PacketListenerPriority.LOWEST) {
             @Override
             public void onPacketReceive(PacketReceiveEvent event) {
+                if (event.getPacketType() == PacketType.Play.Client.PLAYER_ROTATION || 
+                    event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
+                    Player player = (Player) event.getPlayer();
+                    if (!playerCursors.containsKey(player)) return;
+                    
+                    // 获取玩家最新朝向
+                    float yaw = 0, pitch = 0;
+                    if (event.getPacketType() == PacketType.Play.Client.PLAYER_ROTATION) {
+                        com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerRotation packet = 
+                            new com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerRotation(event);
+                        yaw = packet.getYaw();
+                        pitch = packet.getPitch();
+                    } else {
+                        com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerPositionAndRotation packet = 
+                            new com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerPositionAndRotation(event);
+                        yaw = packet.getYaw();
+                        pitch = packet.getPitch();
+                    }
+                    
+                    // 同步到主线程执行位置更新
+                    final float finalYaw = yaw;
+                    final float finalPitch = pitch;
+                    foliaLib.scheduling().entitySpecificScheduler(player).run(task -> {
+                        updateCursorPosition(player, finalYaw, finalPitch);
+                    }, null);
+                }
+                
                 if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
                     Player player = (Player) event.getPlayer();
                     if (!playerCursors.containsKey(player)) return;
                     event.setCancelled(true);
-
-                    WrapperPlayClientInteractEntity interactEntity = new WrapperPlayClientInteractEntity(event);
-
-                    foliaLib.scheduling().regionSpecificScheduler(player.getLocation()).run(task -> {
-                        Location cursorLoc = cursorExactLocations.get(player);
-                        if (cursorLoc == null) return;
-
-                        String menuKey = getCurrentPlayerMenu(player);
-                        if (menuKey == null) return;
-
-                        Section section = sectionManager.get(menuKey);
-                        if (section == null) return;
-
-                        World world = Bukkit.getWorld(section.world);
-                        if (world == null) return;
-
-                        TextDisplay closest = null;
-                        double minDistance = Double.MAX_VALUE;
-
-                        for (MenuLayout layout : section.layouts.values()) {
-                            Location cameraLoc = new Location(world, section.cameraX, section.cameraY, section.cameraZ, section.yaw, section.pitch);
-                            Vector dir = cameraLoc.getDirection().normalize();
-                            Vector right = new Vector(-dir.getZ(), 0, dir.getX()).normalize();
-                            Vector up = dir.getCrossProduct(right).multiply(-1);
-
-                            Vector offset = dir.multiply(layout.z)
-                                    .add(right.multiply(layout.x))
-                                    .add(up.multiply(layout.y));
-                            Location buttonLoc = cameraLoc.clone().add(offset);
-
-                            String key = menuKey + ":" + layout.key;
-
-                            TextDisplay textDisplay = world.getEntitiesByClass(TextDisplay.class).stream()
-                                    .filter(e -> key.equals(e.getCustomName()))
-                                    .findFirst()
-                                    .orElse(null);
-
-                            if (textDisplay != null && TextDisplayHitBox.isInside(textDisplay, cursorLoc)) {
-                                minDistance = 0;
-                                closest = textDisplay;
-                                break; // 找到后立即跳出循环
-                            }
-                        }
-
-                        if (closest != null) {
-                            String key = closest.getCustomName();
-                            MenuLayout layout = sectionManager.getLayout(key);
-                            if (layout != null) {
-                                selectedLayouts.put(player, layout);
-                                layout.runCommand(player);
-                            }
-                        }
-                    });
+                    handleCursorClick(player);
                 }
             }
         });
@@ -1784,6 +1979,10 @@ public class CursorMenuPlugin extends JavaPlugin {
             if (event.getAnimationType() == org.bukkit.event.player.PlayerAnimationType.ARM_SWING) {
                 event.getPlayer().setMetadata("cursor_is_attacking_or_breaking",
                         new FixedMetadataValue(plugin, true));
+                if (playerCursors.containsKey(event.getPlayer())) {
+                    event.setCancelled(true);
+                    plugin.handleCursorClick(event.getPlayer());
+                }
             }
         }
 
@@ -1893,7 +2092,16 @@ public class CursorMenuPlugin extends JavaPlugin {
 
         @EventHandler(priority = EventPriority.HIGHEST)
         public void onKick(PlayerKickEvent e) {
+            if (playerCursors.containsKey(e.getPlayer()) && isSelfInteractKick(e.getReason())) {
+                e.setCancelled(true);
+                return;
+            }
+
             cleanup(e.getPlayer());
+        }
+
+        private boolean isSelfInteractKick(String reason) {
+            return reason != null && reason.toLowerCase(Locale.ROOT).contains("cannot interact with self");
         }
 
         @EventHandler(priority = EventPriority.HIGHEST)
@@ -1949,7 +2157,10 @@ public class CursorMenuPlugin extends JavaPlugin {
             // 确保玩家退出时清除登录状态
             setPlayerLoggedIn(player, false);
             
-            if (!playerCursors.containsKey(player)) return;
+            if (!playerCursors.containsKey(player)) {
+                clearPlayerSessionReferences(player);
+                return;
+            }
 
             // 1. 取猪，把玩家踢下来
             Pig pig = playerSit.remove(player);
@@ -2004,6 +2215,19 @@ public class CursorMenuPlugin extends JavaPlugin {
             userInputData.remove(player.getUniqueId());
             passwordVisibility.remove(player.getUniqueId());
         }
+    }
+
+    private void clearPlayerSessionReferences(Player player) {
+        playerLocations.remove(player);
+        cursorExactLocations.remove(player);
+        currentPlayerMenus.remove(player);
+        selectedLayouts.remove(player);
+        currentPlayerInputFields.remove(player.getUniqueId());
+        userInputData.remove(player.getUniqueId());
+        passwordVisibility.remove(player.getUniqueId());
+        Commands.getUserInputData().remove(player.getUniqueId());
+        playingSound.remove(player.getName());
+        setPlayerLoggedIn(player, false);
     }
 
     private File getPlayerBlockFile(Player player) {
@@ -2127,47 +2351,7 @@ public class CursorMenuPlugin extends JavaPlugin {
 
                         // 2. 执行自定义命令（新增功能）
                         for (String cmd : joinRunCommands) {
-                            // 处理占位符
-                            String processedCmd = cmd; // 不再替换 %player%
-                            if (hasPAPI) {
-                                processedCmd = PlaceholderAPI.setPlaceholders(player, processedCmd);
-                            }
-
-                            // 执行命令
-                            if (processedCmd.toLowerCase().startsWith("[console]")) {
-                                String finalCmd = processedCmd.replaceAll("\\[console\\]", "").trim();
-                                if (!finalCmd.isEmpty()) {
-                                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), finalCmd);
-                                } else {
-                                    getLogger().warning("试图执行空控制台命令: " + processedCmd);
-                                }
-                            } else if (processedCmd.toLowerCase().startsWith("[op]")) {
-                                String finalCmd = processedCmd.replaceAll("\\[op\\]", "").trim();
-                                if (!finalCmd.isEmpty()) {
-                                    if (player.isOp()) {
-                                        player.performCommand(finalCmd);
-                                    } else {
-                                        try {
-                                            player.setOp(true);
-                                            player.performCommand(finalCmd);
-                                        } finally {
-                                            player.setOp(false);
-                                        }
-                                    }
-                                } else {
-                                    getLogger().warning("试图执行空OP命令: " + processedCmd);
-                                }
-                            } else {
-                                String finalCmd = processedCmd;
-                                if (processedCmd.toLowerCase().startsWith("[player]")) {
-                                    finalCmd = processedCmd.replaceAll("\\[player\\]", "").trim();
-                                }
-                                if (!finalCmd.isEmpty()) {
-                                    player.performCommand(finalCmd);
-                                } else {
-                                    getLogger().warning("试图执行空玩家命令: " + processedCmd);
-                                }
-                            }
+                            CommandUtils.executeCommand(player, cmd);
                         }
                     }
                 }, null, delayTicks);
@@ -2194,137 +2378,6 @@ public class CursorMenuPlugin extends JavaPlugin {
                     // 资源不存在时，静默跳过
                 }
             }
-        }
-    }
-
-    private void startChunkLoaderTask() {
-        // 停止旧任务
-        stopChunkLoaderTask();
-
-        // 初始化强制加载（后续通过updatePersistentChunks更新）
-        updatePersistentChunks();
-
-        // 可选：每30秒验证一次区块状态（防止意外卸载）
-        chunkLoaderTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(this, this::updatePersistentChunks, 0L, 600L); // 30秒一次
-    }
-
-    // 添加新方法：停止区块加载任务
-    private void stopChunkLoaderTask() {
-        // 解除所有强制加载的区块
-        for (Map.Entry<String, Set<Long>> entry : forcedLoadedChunks.entrySet()) {
-            String worldName = entry.getKey();
-            World world = Bukkit.getWorld(worldName);
-            if (world == null) continue;
-
-            for (long chunkKey : entry.getValue()) {
-                int x = (int) (chunkKey >> 32);
-                int z = (int) (chunkKey & 0xFFFFFFFFL);
-
-                Chunk chunk = world.getChunkAt(x, z);
-                if (chunk != null) {
-                    chunk.setForceLoaded(false);
-                }
-            }
-        }
-        forcedLoadedChunks.clear();
-
-        // 取消定时任务
-        if (chunkLoaderTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(chunkLoaderTaskId);
-            chunkLoaderTaskId = -1;
-        }
-    }
-
-    // 添加新方法：更新需要持续加载的区块列表
-    private void updatePersistentChunks() {
-        // 1. 先记录当前所有强制加载的区块（用于后续清理）
-        Map<String, Set<Long>> oldChunks = new HashMap<>();
-        // 关键：对内部集合也做深拷贝，避免修改原集合
-        for (Map.Entry<String, Set<Long>> entry : forcedLoadedChunks.entrySet()) {
-            oldChunks.put(entry.getKey(), new HashSet<>(entry.getValue()));
-        }
-
-        // 2. 计算新的需要加载的区块（完全新建，不修改旧集合）
-        Map<String, Set<Long>> newChunks = new HashMap<>();
-        for (Section section : sectionManager.getAll().values()) {
-            World world = Bukkit.getWorld(section.world);
-            if (world == null) continue;
-
-            // 计算菜单相机位置所在的区块
-            int chunkX = (int) Math.floor(section.cameraX / 16);
-            int chunkZ = (int) Math.floor(section.cameraZ / 16);
-            long chunkKey = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
-            newChunks.computeIfAbsent(section.world, k -> new HashSet<>()).add(chunkKey);
-
-            // 处理菜单内其他元素的区块
-            if (section.layouts != null) {
-                for (MenuLayout layout : section.layouts.values()) {
-                    int layoutChunkX = (int) Math.floor((section.cameraX + layout.x) / 16);
-                    int layoutChunkZ = (int) Math.floor((section.cameraZ + layout.z) / 16);
-                    long layoutChunkKey = ((long) layoutChunkX << 32) | (layoutChunkZ & 0xFFFFFFFFL);
-                    newChunks.get(section.world).add(layoutChunkKey);
-                }
-            }
-        }
-
-        // 3. 对新增的区块：标记为强制加载
-        for (Map.Entry<String, Set<Long>> entry : newChunks.entrySet()) {
-            String worldName = entry.getKey();
-            World world = Bukkit.getWorld(worldName);
-            if (world == null) continue;
-
-            Set<Long> chunkKeys = entry.getValue();
-            for (long chunkKey : chunkKeys) {
-                int x = (int) (chunkKey >> 32);
-                int z = (int) (chunkKey & 0xFFFFFFFFL);
-
-                // 兼容所有版本的加载逻辑
-                if (!world.isChunkLoaded(x, z)) {
-                    world.loadChunk(x, z, true); // 加载区块
-                    Chunk chunk = world.getChunkAt(x, z);
-                    if (chunk != null) {
-                        chunk.setForceLoaded(true); // 标记强制加载
-                    }
-                } else {
-                    Chunk chunk = world.getChunkAt(x, z);
-                    chunk.setForceLoaded(true);
-                }
-
-                // 记录到强制加载列表
-                forcedLoadedChunks.computeIfAbsent(worldName, k -> new HashSet<>()).add(chunkKey);
-            }
-        }
-
-        // 4. 单独处理需要移除的区块（与遍历新集合分离）
-        for (Map.Entry<String, Set<Long>> entry : oldChunks.entrySet()) {
-            String worldName = entry.getKey();
-            World world = Bukkit.getWorld(worldName);
-            if (world == null) continue;
-
-            Set<Long> oldChunkKeys = entry.getValue();
-            // 过滤出不在新集合中的区块（需要移除）
-            for (long chunkKey : oldChunkKeys) {
-                Set<Long> newChunkKeys = newChunks.getOrDefault(worldName, Collections.emptySet());
-                if (!newChunkKeys.contains(chunkKey)) {
-                    // 解除强制加载
-                    int x = (int) (chunkKey >> 32);
-                    int z = (int) (chunkKey & 0xFFFFFFFFL);
-                    Chunk chunk = world.getChunkAt(x, z);
-                    if (chunk != null) {
-                        chunk.setForceLoaded(false);
-                    }
-                    // 从强制加载列表中移除
-                    forcedLoadedChunks.getOrDefault(worldName, new HashSet<>()).remove(chunkKey);
-                }
-            }
-        }
-
-        // 清理空的世界条目
-        forcedLoadedChunks.entrySet().removeIf(e -> e.getValue().isEmpty());
-
-        if (debugMode) {
-            getLogger().info("已更新强制加载区块：共 " + forcedLoadedChunks.size() + " 个世界，" +
-                    forcedLoadedChunks.values().stream().mapToInt(Set::size).sum() + " 个区块");
         }
     }
 

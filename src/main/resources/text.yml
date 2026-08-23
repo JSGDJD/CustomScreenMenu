@@ -15,8 +15,11 @@ text-displays:
       y: 0
       z: 0
     animation:
-      type: "rotate"  # rotate, up-down, left-right
+      enabled: true
+      type: "rotate"  # rotate, up-down/float-y, left-right/float-x
       speed: 2.0
+      amplitude: 0.25
+      phase-offset: 0.0
       spacing: 0.5
     duration: 100  # 持续时间（秒）
     alignment: "center"  # left, center, right
@@ -34,8 +37,11 @@ text-displays:
       y: 1
       z: -3
     animation:
+      enabled: true
       type: "up-down"
       speed: 1.5
+      amplitude: 0.25
+      phase-offset: 0.35
       spacing: 0.3
     duration: 60
     alignment: "left"

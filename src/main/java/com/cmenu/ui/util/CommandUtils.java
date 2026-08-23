@@ -19,9 +19,14 @@ public final class CommandUtils {
         }
 
         String processedCmd = cmd;
-        if (CursorMenuPlugin.hasPAPI) {
+        
+        // 首先使用 PAPI 替换占位符
+        if (CursorMenuPlugin.hasPAPI && Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
             processedCmd = me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(player, cmd);
         }
+        
+        // 无论是否有 PAPI，都替换基本内置占位符
+        processedCmd = replaceBuiltinPlaceholders(player, processedCmd);
 
         String lowerCmd = processedCmd.toLowerCase();
 
@@ -61,6 +66,41 @@ public final class CommandUtils {
                 player.performCommand(finalCmd);
             }
         }
+    }
+
+    /**
+     * 替换内置占位符（不依赖 PlaceholderAPI）
+     */
+    private static String replaceBuiltinPlaceholders(Player player, String text) {
+        if (text == null || player == null) return text;
+        
+        // 替换玩家相关占位符
+        text = text.replace("%player%", player.getName());
+        text = text.replace("%player_name%", player.getName());
+        text = text.replace("%player_uuid%", player.getUniqueId().toString());
+        text = text.replace("%player_displayname%", player.getDisplayName());
+        
+        // 替换位置相关占位符
+        if (player.getLocation() != null) {
+            text = text.replace("%player_x%", String.format("%.2f", player.getLocation().getX()));
+            text = text.replace("%player_y%", String.format("%.2f", player.getLocation().getY()));
+            text = text.replace("%player_z%", String.format("%.2f", player.getLocation().getZ()));
+            text = text.replace("%player_world%", player.getWorld().getName());
+        }
+        
+        // 替换其他常用占位符
+        text = text.replace("%player_health%", String.format("%.1f", player.getHealth()));
+        text = text.replace("%player_max_health%", String.format("%.1f", player.getMaxHealth()));
+        text = text.replace("%player_level%", String.valueOf(player.getLevel()));
+        text = text.replace("%player_exp%", String.valueOf(player.getTotalExperience()));
+        text = text.replace("%player_food%", String.valueOf(player.getFoodLevel()));
+        text = text.replace("%player_gamemode%", String.valueOf(player.getGameMode().name()));
+        text = text.replace("%player_is_op%", String.valueOf(player.isOp()));
+        text = text.replace("%player_is_online%", String.valueOf(player.isOnline()));
+        text = text.replace("%player_is_sneaking%", String.valueOf(player.isSneaking()));
+        text = text.replace("%player_is_flying%", String.valueOf(player.isFlying()));
+        
+        return text;
     }
 
     public static void executeWithTempOp(Player player, String command) {

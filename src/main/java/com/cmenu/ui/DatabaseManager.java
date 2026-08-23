@@ -14,7 +14,7 @@ public class DatabaseManager {
         initializeDatabase();
     }
 
-    private void initializeDatabase() {
+    private synchronized void initializeDatabase() {
         try {
             // 确保数据文件夹存在
             File dataFolder = plugin.getDataFolder();
@@ -82,7 +82,7 @@ public class DatabaseManager {
     }
 
     // 获取数据库连接，如果连接已关闭则重新建立连接
-    private Connection getConnection() throws SQLException {
+    private synchronized Connection getConnection() throws SQLException {
         if (connection == null || connection.isClosed()) {
             // 重新建立数据库连接
             String url = "jdbc:sqlite:" + new File(plugin.getDataFolder(), "users.db").getAbsolutePath();
@@ -92,7 +92,7 @@ public class DatabaseManager {
         return connection;
     }
 
-    public boolean isUserRegistered(String username) {
+    public synchronized boolean isUserRegistered(String username) {
         String sql = "SELECT registered FROM users WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -109,7 +109,7 @@ public class DatabaseManager {
         return false;
     }
 
-    public boolean isUsernameExists(String username) {
+    public synchronized boolean isUsernameExists(String username) {
         String sql = "SELECT id FROM users WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -123,7 +123,7 @@ public class DatabaseManager {
         return false;
     }
 
-    public boolean isIpAlreadyRegistered(String registerIp) {
+    public synchronized boolean isIpAlreadyRegistered(String registerIp) {
         String sql = "SELECT id FROM users WHERE register_ip = ? AND registered = 1";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -137,7 +137,7 @@ public class DatabaseManager {
         return false;
     }
 
-    public boolean registerUser(String username, String passwordHash, String registerIp) {
+    public synchronized boolean registerUser(String username, String passwordHash, String registerIp) {
         String sql = "INSERT INTO users(username, password_hash, registered, register_ip) VALUES(?, ?, ?, ?)";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -154,7 +154,7 @@ public class DatabaseManager {
         }
     }
 
-    public boolean authenticateUser(String username, String passwordHash) {
+    public synchronized boolean authenticateUser(String username, String passwordHash) {
         String sql = "SELECT password_hash FROM users WHERE username = ? AND registered = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -174,7 +174,7 @@ public class DatabaseManager {
         return false;
     }
 
-    public String getStoredPasswordHash(String username) {
+    public synchronized String getStoredPasswordHash(String username) {
         String sql = "SELECT password_hash FROM users WHERE username = ? AND registered = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -193,7 +193,7 @@ public class DatabaseManager {
         return null;
     }
 
-    public UserInfo getUserInfo(String username) {
+    public synchronized UserInfo getUserInfo(String username) {
         String sql = "SELECT username, register_ip, last_login_ip, login_attempts, last_login_time FROM users WHERE username = ? AND registered = 1";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -217,7 +217,7 @@ public class DatabaseManager {
         return null;
     }
 
-    public UserInfo getUserInfoByIp(String ip) {
+    public synchronized UserInfo getUserInfoByIp(String ip) {
         String sql = "SELECT username, register_ip, last_login_ip, login_attempts, last_login_time FROM users WHERE register_ip = ? AND registered = 1 LIMIT 1";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -241,7 +241,7 @@ public class DatabaseManager {
         return null;
     }
 
-    public boolean updateLoginInfo(String username, String currentIp, boolean success) {
+    public synchronized boolean updateLoginInfo(String username, String currentIp, boolean success) {
         String sql = "UPDATE users SET last_login_ip = ?, login_attempts = ?, last_login_time = CURRENT_TIMESTAMP WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -256,7 +256,7 @@ public class DatabaseManager {
         }
     }
 
-    public boolean updateLoginAttempts(String username, int attempts) {
+    public synchronized boolean updateLoginAttempts(String username, int attempts) {
         String sql = "UPDATE users SET login_attempts = ? WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -270,7 +270,7 @@ public class DatabaseManager {
         }
     }
 
-    public int getLoginAttempts(String username) {
+    public synchronized int getLoginAttempts(String username) {
         String sql = "SELECT login_attempts FROM users WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -288,7 +288,7 @@ public class DatabaseManager {
         return 0;
     }
 
-    public boolean updateUserPassword(String username, String newPasswordHash) {
+    public synchronized boolean updateUserPassword(String username, String newPasswordHash) {
         String sql = "UPDATE users SET password_hash = ? WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -303,7 +303,7 @@ public class DatabaseManager {
         }
     }
 
-    public boolean deleteUser(String username) {
+    public synchronized boolean deleteUser(String username) {
         String sql = "DELETE FROM users WHERE username = ?";
 
         try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
@@ -317,11 +317,12 @@ public class DatabaseManager {
         }
     }
 
-    public void closeConnection() {
+    public synchronized void closeConnection() {
         try {
             if (connection != null && !connection.isClosed()) {
                 connection.close();
             }
+            connection = null;
         } catch (SQLException e) {
             plugin.getLogger().severe("关闭数据库连接时出错: " + e.getMessage());
         }

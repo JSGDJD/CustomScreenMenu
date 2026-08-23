@@ -1,6 +1,6 @@
 name: CustomScreenMenu
 main: com.cmenu.ui.CursorMenuPlugin
-version: 1.4.2
+version: 1.4.6
 api-version: '1.19'
 description: 由野比大雄基于框架UI菜单界面
 folia-supported: true
@@ -53,7 +53,6 @@ permissions:
     default: op
 
 libraries:
-  - net.kyori:adventure-text-minimessage:4.15.0
   - org.xerial:sqlite-jdbc:3.42.0.0
 
 depend:

@@ -106,19 +106,34 @@ public class WASDNavigationManager {
                     return;
                 }
 
-                Player player = Bukkit.getPlayer(event.getUser().getName());
-                if (player == null || !player.isOnline()) {
-                    return;
-                }
-
-                UUID playerId = player.getUniqueId();
-
-                if (!isWASDEnabledForPlayer(playerId)) {
-                    return;
-                }
-
                 if (event.getPacketType() == PacketType.Play.Client.PLAYER_INPUT) {
-                    handlePlayerInput(player, event);
+                    String playerName = event.getUser().getName();
+                    WrapperPlayClientPlayerInput inputPacket = new WrapperPlayClientPlayerInput(event);
+
+                    boolean jump = inputPacket.isJump();
+                    float sideways = 0.0f;
+                    float forward = 0.0f;
+
+                    if (inputPacket.isForward()) forward += 1.0f;
+                    if (inputPacket.isBackward()) forward -= 1.0f;
+                    if (inputPacket.isLeft()) sideways += 1.0f;
+                    if (inputPacket.isRight()) sideways -= 1.0f;
+
+                    float finalForward = forward;
+                    float finalSideways = sideways;
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        Player player = Bukkit.getPlayerExact(playerName);
+                        if (player == null || !player.isOnline()) {
+                            return;
+                        }
+
+                        UUID playerId = player.getUniqueId();
+                        if (!isWASDEnabledForPlayer(playerId)) {
+                            return;
+                        }
+
+                        handlePlayerInput(player, finalForward, finalSideways, jump);
+                    });
                 }
             }
         };
@@ -129,24 +144,14 @@ public class WASDNavigationManager {
     /**
      * 处理玩家输入
      */
-    private void handlePlayerInput(Player player, PacketReceiveEvent event) {
+    private void handlePlayerInput(Player player, float forward, float sideways, boolean jump) {
         UUID playerId = player.getUniqueId();
         
         if (!playerSessions.containsKey(playerId)) {
             return;
         }
 
-        WrapperPlayClientPlayerInput inputPacket = new WrapperPlayClientPlayerInput(event);
-
-        float sideways = 0.0f;
-        float forward = 0.0f;
-
-        if (inputPacket.isForward()) forward += 1.0f;
-        if (inputPacket.isBackward()) forward -= 1.0f;
-        if (inputPacket.isLeft()) sideways += 1.0f;
-        if (inputPacket.isRight()) sideways -= 1.0f;
-
-        if (inputPacket.isJump()) {
+        if (jump) {
             executeSelectedCommand(player);
         }
 

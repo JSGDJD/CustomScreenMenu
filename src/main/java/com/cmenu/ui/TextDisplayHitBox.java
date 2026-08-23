@@ -15,9 +15,9 @@ import org.joml.Vector4f;
  */
 public final class TextDisplayHitBox {
 
-    /** 本地默认宽高；TextDisplay 1 行时大约 0.25 格高，宽度按字符数线性估算 */
-    private static final float LOCAL_HEIGHT = 0.25f;
-    private static final float LOCAL_WIDTH_PER_CHAR = 0.15f;
+    /** 本地默认宽高；TextDisplay 1 行时大约 0.2 格高，宽度按字符数线性估算 */
+    private static final float LOCAL_HEIGHT = 0.2f;
+    private static final float LOCAL_WIDTH_PER_CHAR = 0.12f;
 
     /**
      * 主入口：光标是否在文本的"真实"范围内
@@ -27,48 +27,42 @@ public final class TextDisplayHitBox {
 
         // 1. 估算本地尺寸（宽=字符数*系数，高=单行固定值）
         String text = display.getText() != null ? display.getText() : "";
-        float localWidth = Math.max(0.1f, text.length() * LOCAL_WIDTH_PER_CHAR);
+        // 过滤颜色代码以获得更准确的宽度估算
+        String strippedText = text.replaceAll("§[0-9a-fk-orA-FK-OR]", "");
+        float localWidth = Math.max(0.1f, strippedText.length() * LOCAL_WIDTH_PER_CHAR);
         float localHeight = LOCAL_HEIGHT;
+        float localDepth = 0.05f; // 给一点深度，用于 3D 空间碰撞检测
 
-        // 2. 取变换矩阵
-        Matrix4f mat = matrixFromTransformation(display);
+        // 2. 取变换矩阵并求逆
+        Transformation tr = display.getTransformation();
+        Matrix4f worldMatrix = matrixFromTransformation(display, tr);
+        Matrix4f invMatrix = new Matrix4f(worldMatrix).invert();
 
-        // 3. 构建本地中心在原点的 8 个顶点
-        Vector3f[] localVerts = buildLocalVertices(localWidth, localHeight);
+        // 3. 将世界坐标转换到本地空间
+        Vector4f worldPos = new Vector4f((float) cursor.getX(), (float) cursor.getY(), (float) cursor.getZ(), 1.0f);
+        Vector4f localPos = new Vector4f();
+        invMatrix.transform(worldPos, localPos);
 
-        // 4. 转到世界坐标
-        Vector3f[] worldVerts = new Vector3f[8];
-        for (int i = 0; i < 8; i++) {
-            Vector4f v = new Vector4f(localVerts[i], 1.0f);
-            mat.transform(v);
-            worldVerts[i] = new Vector3f(v.x, v.y, v.z);
-        }
+        // 4. 容错范围应随缩放比例调整
+        Vector3f scale = tr.getScale();
+        float avgScale = (scale.x + scale.y + scale.z) / 3.0f;
+        float expansion = (float) Math.max(0.01, 0.05 * avgScale);
 
-        // 5. 计算包围盒的边界
-        float minX = worldVerts[0].x, minY = worldVerts[0].y, minZ = worldVerts[0].z;
-        float maxX = worldVerts[0].x, maxY = worldVerts[0].y, maxZ = worldVerts[0].z;
+        // 5. 在本地空间进行 AABB 检测 (OBB 检测的等效实现)
+        float hw = localWidth / 2f + expansion / Math.max(0.1f, scale.x);
+        float hh = localHeight / 2f + expansion / Math.max(0.1f, scale.y);
+        float hd = localDepth / 2f + expansion / Math.max(0.1f, scale.z);
 
-        for (int i = 1; i < 8; i++) {
-            minX = Math.min(minX, worldVerts[i].x);
-            minY = Math.min(minY, worldVerts[i].y);
-            minZ = Math.min(minZ, worldVerts[i].z);
-            maxX = Math.max(maxX, worldVerts[i].x);
-            maxY = Math.max(maxY, worldVerts[i].y);
-            maxZ = Math.max(maxZ, worldVerts[i].z);
-        }
-
-        // 6. 用 Bukkit 自带的 BoundingBox 快速判断（含外延）
-        BoundingBox obb = new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ);
-        obb.expand(0.2);   // 给玩家一点容错
-
-        return obb.contains(cursor.toVector());
+        return Math.abs(localPos.x) <= hw &&
+               Math.abs(localPos.y) <= hh &&
+               Math.abs(localPos.z) <= hd;
     }
 
     /* ---------------- 内部工具 ---------------- */
 
-    private static Matrix4f matrixFromTransformation(TextDisplay td) {
-        Transformation tr = td.getTransformation();
-        Vector3f translation = tr.getTranslation();
+    private static Matrix4f matrixFromTransformation(TextDisplay td, Transformation tr) {
+        // 使用克隆的向量避免修改原始 Transformation
+        Vector3f translation = new Vector3f(tr.getTranslation());
         org.joml.Quaternionf leftRot = tr.getLeftRotation();
         Vector3f scale = tr.getScale();
 
@@ -76,24 +70,11 @@ public final class TextDisplayHitBox {
         Location location = td.getLocation();
         translation.add((float)location.getX(), (float)location.getY(), (float)location.getZ());
 
-        Matrix4f T = new Matrix4f().translate(translation);
-        Matrix4f R = new Matrix4f().rotate(leftRot);
-        Matrix4f S = new Matrix4f().scale(scale);
-
         // 世界矩阵 = T * R * S
-        return T.mul(R).mul(S);
-    }
-
-    private static Vector3f[] buildLocalVertices(float w, float h) {
-        float x = w / 2f;
-        float y = h / 2f;
-        float z = 0.02f; // TextDisplay 几乎无厚度，给一点深度避免除 0
-        return new Vector3f[]{
-                new Vector3f(-x, -y, -z), new Vector3f(x, -y, -z),
-                new Vector3f(x, y, -z),   new Vector3f(-x, y, -z),
-                new Vector3f(-x, -y, z),  new Vector3f(x, -y, z),
-                new Vector3f(x, y, z),    new Vector3f(-x, y, z)
-        };
+        return new Matrix4f()
+                .translate(translation)
+                .rotate(leftRot)
+                .scale(scale);
     }
 
     private TextDisplayHitBox() {}

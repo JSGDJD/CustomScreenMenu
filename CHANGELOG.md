@@ -1,6 +1,137 @@
 # CustomScreenMenu 更新日志 / Changelog
 
-## [1.4.2] - 2026-03-15
+## [1.4.4] - 2026-04-06
+
+### ✨ 新增功能 / New Features
+
+#### 打字机效果 / Typewriter Effect
+**文字逐字显示动画** - 为文本元素添加打字机效果，让文字像打字一样逐字显示。
+
+- 可配置显示速度（每个字符显示间隔）
+- 可配置开始延迟（延迟多少tick后开始显示）
+- 可配置光标字符（显示在文字末尾的闪烁光标）
+- 支持热重载，修改配置后 `/cmenu reload` 即可生效
+
+**Text Character-by-Character Animation** - Add typewriter effect to text elements, displaying text character by character like typing.
+
+- Configurable display speed (interval between each character)
+- Configurable start delay (ticks before display starts)
+- Configurable cursor character (blinking cursor at the end of text)
+- Hot reload support, changes take effect after `/cmenu reload`
+
+#### 悬停音效 / Hover Sound Effect
+**鼠标悬停音效** - 当玩家鼠标悬停在文本元素上时播放音效。
+
+- 可配置音效名称（支持所有Minecraft音效）
+- 可配置音量和音调
+- 可配置冷却时间（防止音效过于频繁播放）
+- 内置音效回退机制（配置音效无效时自动尝试备用音效）
+
+**Mouse Hover Sound Effect** - Play sound when player hovers mouse over text elements.
+
+- Configurable sound name (supports all Minecraft sounds)
+- Configurable volume and pitch
+- Configurable cooldown (prevent sound from playing too frequently)
+- Built-in sound fallback mechanism (automatically try backup sounds when configured sound is invalid)
+
+### 🐛 问题修复 / Bug Fixes
+
+**修复 join-run 命令占位符不替换问题** - 修复了 `config.yml` 中 `join-run.commands` 配置的命令不替换 `%player%` 等占位符的问题。
+
+- 现在无论是否安装 PlaceholderAPI，内置占位符都会正确替换
+- 支持的内置占位符：`%player%`, `%player_name%`, `%player_uuid%`, `%player_displayname%`, `%player_x%`, `%player_y%`, `%player_z%`, `%player_world%`, `%player_health%` 等
+
+**Fixed join-run Command Placeholder Issue** - Fixed issue where placeholders like `%player%` were not replaced in `join-run.commands` configuration.
+
+- Built-in placeholders are now correctly replaced regardless of PlaceholderAPI installation
+- Supported built-in placeholders: `%player%`, `%player_name%`, `%player_uuid%`, `%player_displayname%`, `%player_x%`, `%player_y%`, `%player_z%`, `%player_world%`, `%player_health%`, etc.
+
+### 🔧 代码优化 / Code Optimizations
+
+**线程安全优化** - 将 `HoverEnlargeManager` 中的 `HashMap` 替换为 `ConcurrentHashMap`，提高多线程环境下的安全性。
+
+**内存优化** - 优化了 `CursorMenuPlugin.getPlayerTextDisplays()` 方法，使用 `Collections.emptyList()` 替代创建新的 `ArrayList`。
+
+**重复清理修复** - 修复了 `TypewriterEffect` 中可能出现的重复清理问题，添加了 `completed` 标志防止重复操作。
+
+**Thread Safety Optimization** - Replaced `HashMap` with `ConcurrentHashMap` in `HoverEnlargeManager` for better safety in multi-threaded environments.
+
+**Memory Optimization** - Optimized `CursorMenuPlugin.getPlayerTextDisplays()` method to use `Collections.emptyList()` instead of creating new `ArrayList`.
+
+**Duplicate Cleanup Fix** - Fixed potential duplicate cleanup issue in `TypewriterEffect`, added `completed` flag to prevent duplicate operations.
+
+### 📝 配置示例 / Configuration Example
+
+```yaml
+# 菜单配置示例 (menu/example.yml)
+layouts:
+  welcome_text:
+    type: text
+    text: "&a欢迎来到服务器！"
+    # 打字机效果配置
+    typewriter-enabled: true
+    typewriter-speed: 2          # 每2tick显示一个字符
+    typewriter-start-delay: 10   # 延迟10tick后开始
+    typewriter-cursor-char: "|"  # 光标字符
+    # 悬停音效配置
+    hover-sound: "block.note.pling"
+    hover-sound-volume: 1.0
+    hover-sound-pitch: 1.0
+    hover-sound-cooldown: 20     # 20tick冷却时间
+```
+
+### 📦 文件变更 / File Changes
+
+| 文件 / File | 变更内容 / Changes |
+|-------------|-------------------|
+| `TypewriterEffect.java` | 新增打字机效果管理器 |
+| `HoverSoundManager.java` | 新增悬停音效管理器 |
+| `MenuLayout.java` | 添加打字机和悬停音效配置字段 |
+| `TextDisplayManager.java` | 集成打字机效果 |
+| `HoverEnlargeManager.java` | 集成悬停音效、线程安全优化 |
+| `CursorMenuPlugin.java` | 添加TextDisplay查找方法、修复join-run占位符 |
+| `CommandUtils.java` | 添加内置占位符替换方法 |
+| `lang.yml` | 添加打字机和悬停音效配置帮助信息 |
+
+---
+
+## [1.4.3] - 2026-03-20
+
+### 🔧 1.21.11 数据包兼容性修复 / 1.21.11 Packet Compatibility Fix
+
+**Paper 1.21.11 兼容性完整修复** - 解决了在Paper 1.21.11版本中set_entity_data数据包异常导致玩家被踢出的问题。
+
+- 所有Transformation操作改为创建新对象而非修改现有对象
+- 修复了double到float类型转换的编译错误
+- 添加了缺失的Transformation导入
+- 完整兼容Paper 1.21.11版本
+
+**Complete Paper 1.21.11 Compatibility Fix** - Resolved set_entity_data packet exception causing player kicks in Paper 1.21.11.
+
+- All Transformation operations now create new objects instead of modifying existing ones
+- Fixed double to float type conversion compilation errors
+- Added missing Transformation imports
+- Fully compatible with Paper 1.21.11
+
+---
+
+## [1.4.2] - 2026-03-19
+
+### 🐛 实体数据包兼容性问题修复 / Entity Packet Compatibility Fix
+
+**修复1.21.x版本实体数据包异常** - 修复了因TextDisplay/ItemDisplay实体Transformation数据设置错误导致的客户端崩溃问题。
+
+- 修复了TextDisplay旋转动画中EulerAngle设置不正确的问题
+- 修复了ItemDisplay旋转逻辑中rotateAxis方法调用错误的问题
+- 修复了MenuLayout中TextDisplay倾斜角度设置未生效的问题
+- 正确使用JOML的AxisAngle4f和Quaternionf替代旧方法
+
+**Fixed Entity Packet Issue for 1.21.x** - Fixed client crash caused by incorrect TextDisplay/ItemDisplay entity Transformation data.
+
+- Fixed incorrect EulerAngle setting in TextDisplay rotation animation
+- Fixed incorrect rotateAxis method call in ItemDisplay rotation logic
+- Fixed TextDisplay tilt angle setting not being applied in MenuLayout
+- Properly use JOML's AxisAngle4f and Quaternionf instead of deprecated methods
 
 ### 🔒 安全性更新 / Security Updates
 
@@ -40,6 +171,20 @@
 - Added 50+ configurable messages
 - Configuration categories: login, register, permission, command, player management, menu, system, NPC, WASD navigation
 
+### 📊 统计系统 / Statistics System
+
+**集成bStats统计** - 插件现在使用bStats收集匿名使用统计数据。
+
+- 自动收集服务器数量、玩家数量等基础数据
+- 数据完全匿名，不收集任何个人信息
+- 可在`plugins/bStats/config.yml`中禁用
+
+**Integrated bStats Statistics** - The plugin now uses bStats to collect anonymous usage statistics.
+
+- Automatically collects basic data like server count, player count
+- Data is completely anonymous, no personal information collected
+- Can be disabled in `plugins/bStats/config.yml`
+
 ### 🧹 代码质量改进 / Code Quality Improvements
 
 **新增命令执行工具类** - 统一了命令执行逻辑，支持`[console]`、`[op]`、`[player]`、`[server]`、`[message]`、`[actionbar]`等命令前缀。
@@ -54,13 +199,15 @@
 
 | 文件 / File | 变更内容 / Changes |
 |-------------|-------------------|
-| `pom.xml` | 添加BCrypt依赖，版本更新至1.4.2 |
+| `pom.xml` | 添加BCrypt依赖、bStats依赖，版本更新至1.4.2 |
 | `plugin.yml` | 版本更新至1.4.2 |
 | `lang.yml` | 新增50+条可配置消息 |
 | `CommandUtils.java` | 新增命令执行工具类 |
 | `Commands.java` | 使用配置化消息 |
-| `CursorMenuPlugin.java` | 使用配置化消息、线程安全集合 |
+| `CursorMenuPlugin.java` | 使用配置化消息、线程安全集合、集成bStats、修复EulerAngle |
 | `MenuLayout.java` | 使用配置化消息 |
+| `TextDisplayManager.java` | 修复旋转动画EulerAngle设置 |
+| `ItemDisplayManager.java` | 修复旋转逻辑rotateAxis调用 |
 | `UserDataManager.java` | 升级密码哈希算法 |
 | `DatabaseManager.java` | 新增获取密码哈希方法 |
 
@@ -69,10 +216,12 @@
 - BCrypt计算比SHA-256慢，这是正常的安全特性
 - 旧密码在首次成功登录后自动升级为BCrypt格式
 - 无需手动迁移数据库
+- bStats统计数据完全匿名，可在配置中禁用
 
 - BCrypt computation is slower than SHA-256, this is a normal security feature
 - Legacy passwords auto-upgrade to BCrypt format after first successful login
 - No manual database migration required
+- bStats statistics are completely anonymous and can be disabled in configuration
 
 ---
 
